@@ -1,0 +1,17 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "source-docs",
+  "description": "既存プロジェクトのソースコードから技術資料を生成する Claude Code スキル。",
+  "owner": {
+    "name": "YAMA417",
+    "url": "https://github.com/YAMA417"
+  },
+  "plugins": [
+    {
+      "name": "source-docs",
+      "source": "./",
+      "category": "documentation",
+      "description": "既存プロジェクトのソースコードから技術資料（DB 定義・ER 図・API 仕様・画面遷移図・外部連携）を生成する。"
+    }
+  ]
+}

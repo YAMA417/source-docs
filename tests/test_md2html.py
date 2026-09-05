@@ -5,7 +5,7 @@ import sys
 import tempfile
 import unittest
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "skill", "scripts"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "skills", "source-docs", "scripts"))
 import md2html  # noqa: E402
 
 
@@ -91,3 +91,54 @@ class WriteSiteTest(unittest.TestCase):
                 index = f.read()
             self.assertIn("DB 定義", index)
             self.assertIn('href="api.html"', index)
+
+
+class LinkSafetyTest(unittest.TestCase):
+    def test_javascript_scheme_is_neutralized(self):
+        out = md2html.render_inline("[click](javascript:alert(1))")
+        self.assertNotIn("javascript:", out.lower())
+
+    def test_data_scheme_is_neutralized(self):
+        out = md2html.render_inline("[x](data:text/html;base64,PHNjcmlwdD4=)")
+        self.assertNotIn("data:", out.lower())
+
+    def test_href_is_attribute_escaped(self):
+        """href の中の引用符でタグを抜けられない。"""
+        out = md2html.render_inline('[x](https://a.test/" onmouseover="alert(1))')
+        self.assertNotIn('onmouseover="alert', out)
+
+    def test_ordinary_links_still_work(self):
+        self.assertEqual(
+            md2html.render_inline("[a](https://example.test/x)"),
+            '<a href="https://example.test/x">a</a>',
+        )
+
+    def test_relative_link_still_works(self):
+        self.assertEqual(
+            md2html.render_inline("[a](database.md)"),
+            '<a href="database.html">a</a>',
+        )
+
+    def test_link_label_is_escaped(self):
+        out = md2html.render_inline("[<img src=x onerror=alert(1)>](a.md)")
+        self.assertNotIn("<img", out)
+
+
+class OutputSafetyTest(unittest.TestCase):
+    def test_refuses_output_into_git_dir(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as src:
+            with open(os.path.join(src, "a.md"), "w", encoding="utf-8") as f:
+                f.write("# A\n")
+            with self.assertRaises(SystemExit):
+                md2html.write_site(src, os.path.join(src, ".git", "out"))
+
+    def test_reports_overwritten_files(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as src, tempfile.TemporaryDirectory() as out:
+            with open(os.path.join(src, "a.md"), "w", encoding="utf-8") as f:
+                f.write("# A\n")
+            with open(os.path.join(out, "a.html"), "w", encoding="utf-8") as f:
+                f.write("既存の内容")
+            overwritten = md2html.existing_targets(src, out)
+            self.assertIn("a.html", [os.path.basename(p) for p in overwritten])

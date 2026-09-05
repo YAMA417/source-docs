@@ -1,0 +1,19 @@
+{
+  "name": "source-docs",
+  "description": "既存プロジェクトのソースコードから、DB 定義・ER 図・API 仕様・画面遷移図・外部連携の技術資料を生成する。ソースから確認できないことは書かず「未確認」として残す。",
+  "version": "0.1.0",
+  "author": {
+    "name": "YAMA417",
+    "url": "https://github.com/YAMA417"
+  },
+  "homepage": "https://github.com/YAMA417/source-docs",
+  "repository": "https://github.com/YAMA417/source-docs",
+  "license": "MIT",
+  "keywords": [
+    "documentation",
+    "reverse-engineering",
+    "er-diagram",
+    "api-spec",
+    "onboarding"
+  ]
+}

@@ -6,14 +6,14 @@ import subprocess
 import sys
 import unittest
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "skill", "scripts"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "skills", "source-docs", "scripts"))
 import inventory  # noqa: E402
 
 FIXTURES = os.path.join(os.path.dirname(__file__), "fixtures")
 NEXT = os.path.join(FIXTURES, "next-prisma")
 STRAPI = os.path.join(FIXTURES, "strapi")
 EXPO = os.path.join(FIXTURES, "expo-app")
-SCRIPT = os.path.join(os.path.dirname(__file__), "..", "skill", "scripts", "inventory.py")
+SCRIPT = os.path.join(os.path.dirname(__file__), "..", "skills", "source-docs", "scripts", "inventory.py")
 
 
 class FindManifestsTest(unittest.TestCase):
@@ -102,3 +102,33 @@ class CliTest(unittest.TestCase):
             capture_output=True, text=True,
         )
         self.assertEqual(proc.returncode, 2)
+
+
+class SecretFileSkipTest(unittest.TestCase):
+    def test_candidates_exclude_secret_files(self):
+        """鍵や .env を候補に出さない。"""
+        import tempfile
+        with tempfile.TemporaryDirectory() as repo:
+            os.makedirs(os.path.join(repo, "src", "gateways"))
+            for name, body in [
+                (os.path.join("src", "gateways", "payment.ts"), "x"),
+                (os.path.join("src", "gateways", ".env.production"), "K=v"),
+                (os.path.join("src", "gateways", "signing.pem"), "key"),
+            ]:
+                with open(os.path.join(repo, name), "w", encoding="utf-8") as f:
+                    f.write(body)
+
+            c = inventory.find_candidates(repo)
+            self.assertIn("src/gateways/payment.ts", c["integration"])
+            self.assertNotIn("src/gateways/.env.production", c["integration"])
+            self.assertNotIn("src/gateways/signing.pem", c["integration"])
+
+    def test_manifests_exclude_secret_dirs(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as repo:
+            os.makedirs(os.path.join(repo, "credentials"))
+            with open(os.path.join(repo, "package.json"), "w", encoding="utf-8") as f:
+                f.write('{"dependencies":{"next":"1"}}')
+            with open(os.path.join(repo, "credentials", "package.json"), "w", encoding="utf-8") as f:
+                f.write('{"dependencies":{"evil":"1"}}')
+            self.assertEqual(inventory.find_manifests(repo), ["package.json"])

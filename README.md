@@ -22,22 +22,20 @@
 
 ## インストール
 
-`skill/` の中身を `~/.claude/skills/source-docs/` へ置く。
+Claude Code のプラグインとして入れる。
+
+```
+/plugin marketplace add YAMA417/source-docs
+/plugin install source-docs@source-docs
+```
+
+手動で置きたい場合は `skills/source-docs/` の中身を
+`~/.claude/skills/source-docs/` へコピーする。
 
 ```bash
-git clone https://github.com/<user>/source-docs.git
+git clone https://github.com/YAMA417/source-docs.git
 mkdir -p ~/.claude/skills/source-docs
-cp -r source-docs/skill/. ~/.claude/skills/source-docs/
-```
-
-配置後はこうなる。
-
-```
-~/.claude/skills/source-docs/
-├── SKILL.md
-├── references/
-├── templates/
-└── scripts/
+cp -r source-docs/skills/source-docs/. ~/.claude/skills/source-docs/
 ```
 
 ## 使い方
@@ -113,6 +111,45 @@ python3 ~/.claude/skills/source-docs/scripts/md2html.py --src docs/system --out 
 
 これ以外のスタックでも汎用手順で動くが、**フレームワーク固有の書き方は
 `references/stacks/` に無ければ読み取れない。** 精度は落ちる。
+
+## セキュリティ
+
+このスキルは他人のリポジトリを読む。そのための取り決め。
+
+**外部へ送信しない。** 対象リポジトリの内容をネットワークへ出す処理は同梱スクリプトに無い。
+依存も Python 標準ライブラリだけなので、外部パッケージ経由の送信経路も無い。
+
+**認証情報の入りうるファイルを開かない。** `scripts/_secure.py` が判定し、
+`inventory.py` と `verify.py` が最初から除外する。SKILL.md にも同じ規則を書いてあるので、
+Claude が自分で開くこともしない。
+
+| 除外するもの | 例 |
+| --- | --- |
+| 環境変数の実ファイル | `.env` / `.env.local` / `.env.production` |
+| 鍵そのもの | `*.pem` / `*.key` / `*.p12` / `*.jks` / `id_rsa` |
+| 認証情報ファイル | `credentials.json` / `service-account.json` / `.npmrc` / `.netrc` / `terraform.tfvars` |
+| ディレクトリごと | `.ssh/` / `.aws/` / `.gnupg/` / `.kube/` / `credentials/` / `secrets/` |
+
+例外は `.env.example` などのテンプレートのみ。外部連携の変数名を知るために読むが、
+**変数名しか見ない。**
+
+**資料 1 本ごとに機密検出を通す。** `secrets.py` はクラウドサービスのトークン（GitHub /
+Slack / Stripe / OpenAI / Anthropic / Google / SendGrid / Twilio / npm / AWS）、秘密鍵、
+JWT、DB 接続文字列、メールアドレス、電話番号、私有 IP、内部ホスト名を検出する。
+**検出しても自動で伏せ字にしない。** 誤検知が出るので、判断は必ず人間に回す。
+
+**生成した HTML は安全側に倒す。** `md2html.py` はリンク先の `javascript:` や `data:`
+スキームを落とし、`href` を属性としてエスケープする。資料の元は他人のリポジトリの
+文字列なので、無検査で HTML に入れない。
+
+**書き出し先を検証する。** `.git` / `node_modules` を含むパスやホームディレクトリ直下への
+出力は拒否する。既存ファイルを上書きする場合はそのパスを標準エラーに出す。黙って上書きしない。
+
+### それでも防げないこと
+
+- **機密検出は誤検知も見落としもある。** パターンに無い形式のトークンは検出できない
+- **除外リストは名前で判定する。** 変わった名前のファイルに秘密が入っていれば読んでしまう
+- **公開前に人間が読む必要がある。** 特に社外へ出す資料は、機密検出を通したうえで目視する
 
 ## このスキルの限界
 

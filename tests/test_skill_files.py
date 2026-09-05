@@ -4,7 +4,7 @@ import os
 import re
 import unittest
 
-SKILL = os.path.join(os.path.dirname(__file__), "..", "skill")
+SKILL = os.path.join(os.path.dirname(__file__), "..", "skills", "source-docs")
 
 TEMPLATES = ["overview", "database", "api", "screens", "integrations"]
 REFERENCES = ["detect", "db", "api", "screens", "integrations", "writing"]

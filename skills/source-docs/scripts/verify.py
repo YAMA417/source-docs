@@ -22,6 +22,8 @@ import os
 import re
 import sys
 
+import _secure
+
 # 探索から外すディレクトリ。生成物とベンダーコードを読んでも実在確認の役に立たない。
 SKIP_DIRS = {
     ".git", "node_modules", "dist", "build", ".next", ".turbo", "coverage",
@@ -39,6 +41,10 @@ SOURCE_EXT = {
 SKIP_FILES = {"package-lock.json", "pnpm-lock.yaml", "yarn.lock", "Podfile.lock"}
 
 MAX_FILE_BYTES = 1_000_000
+
+# 連結したソース全体の上限。大きなリポジトリでメモリを食い尽くさないため。
+# 超えたら打ち切り、打ち切ったことを呼び出し元に伝える
+MAX_TOTAL_BYTES = 50_000_000
 
 HTTP_METHODS = ("GET", "POST", "PUT", "PATCH", "DELETE")
 
@@ -70,28 +76,54 @@ def load_sources(repos):
     """リポジトリ内のソースを 1 本のテキストに連結して返す。
 
     候補ごとにファイルを開き直すと I/O が候補数に比例するので、一度だけ読む。
+
+    認証情報が入りうるファイル（`.env` / 鍵 / credentials 配下）は
+    `_secure` の判定で**開かない**。照合に使わないうえ、読む必要もない。
     """
     chunks = []
     file_count = 0
+    total = 0
+    truncated = False
+
     for repo in repos:
         if not os.path.isdir(repo):
-            raise SystemExit(f"error: リポジトリが見つかりません: {repo}")
+            print(f"error: リポジトリが見つかりません: {repo}", file=sys.stderr)
+            raise SystemExit(2)
         for root, dirs, files in os.walk(repo):
-            dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+            dirs[:] = [
+                d for d in dirs
+                if d not in SKIP_DIRS and d.lower() not in _secure.SECRET_DIRS
+            ]
             for name in files:
                 if name in SKIP_FILES:
+                    continue
+                if _secure.is_secret_file(name):
                     continue
                 if os.path.splitext(name)[1] not in SOURCE_EXT:
                     continue
                 path = os.path.join(root, name)
+                if _secure.is_unsafe_to_open(path):
+                    continue
                 try:
-                    if os.path.getsize(path) > MAX_FILE_BYTES:
+                    size = os.path.getsize(path)
+                    if size > MAX_FILE_BYTES:
+                        continue
+                    if total + size > MAX_TOTAL_BYTES:
+                        truncated = True
                         continue
                     with open(path, encoding="utf-8", errors="ignore") as f:
                         chunks.append(f.read())
+                    total += size
                     file_count += 1
                 except OSError:
                     continue
+
+    if truncated:
+        print(
+            f"warning: 読み込みが {MAX_TOTAL_BYTES // 1_000_000}MB を超えたため打ち切った。"
+            "照合の取りこぼしが出る可能性がある",
+            file=sys.stderr,
+        )
     return "\n".join(chunks), file_count
 
 

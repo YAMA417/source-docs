@@ -4,7 +4,7 @@ import os
 import sys
 import unittest
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "skill", "scripts"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "skills", "source-docs", "scripts"))
 import verify  # noqa: E402
 
 
@@ -56,3 +56,22 @@ class EndpointTest(unittest.TestCase):
     def test_extracts_method_and_path(self):
         doc = "| `POST` | `/api/orders` | 注文を確定する |"
         self.assertIn(("POST", "/api/orders"), verify.extract_endpoints(doc))
+
+
+class SecretFileSkipTest(unittest.TestCase):
+    def test_load_sources_skips_secret_files(self):
+        """.env や鍵ファイルは読み込まない。"""
+        import tempfile
+        with tempfile.TemporaryDirectory() as repo:
+            with open(os.path.join(repo, "app.ts"), "w", encoding="utf-8") as f:
+                f.write("const table = 'orders';")
+            with open(os.path.join(repo, ".env"), "w", encoding="utf-8") as f:
+                f.write("SECRET_TOKEN=abcdef0123456789")
+            with open(os.path.join(repo, "server.pem"), "w", encoding="utf-8") as f:
+                f.write("-----BEGIN PRIVATE KEY-----")
+
+            sources, count = verify.load_sources([repo])
+            self.assertIn("orders", sources)
+            self.assertNotIn("SECRET_TOKEN", sources)
+            self.assertNotIn("BEGIN PRIVATE KEY", sources)
+            self.assertEqual(count, 1)

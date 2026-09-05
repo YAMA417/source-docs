@@ -4,7 +4,7 @@ import os
 import sys
 import unittest
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "skill", "scripts"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "skills", "source-docs", "scripts"))
 import inventory  # noqa: E402
 
 FIXTURES = os.path.join(os.path.dirname(__file__), "fixtures")

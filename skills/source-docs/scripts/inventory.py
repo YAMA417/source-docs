@@ -22,6 +22,8 @@ import os
 import re
 import sys
 
+import _secure
+
 # 依存名 → (区分, 表示名)
 FRAMEWORK_HINTS = {
     "next": ("frontend", "Next.js"),
@@ -245,11 +247,20 @@ NOT_A_SCREEN = {
 
 
 def _walk_files(repo):
-    """リポジトリ相対パスを列挙する。除外ディレクトリは降りない。"""
+    """リポジトリ相対パスを列挙する。
+
+    除外ディレクトリには降りない。認証情報が入りうるファイルとディレクトリは
+    `_secure` の判定で最初から候補に出さない。
+    """
     for root, dirs, files in os.walk(repo):
-        dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+        dirs[:] = [
+            d for d in dirs
+            if d not in SKIP_DIRS and d.lower() not in _secure.SECRET_DIRS
+        ]
         for name in files:
             full = os.path.join(root, name)
+            if _secure.is_unsafe_to_open(full):
+                continue
             yield os.path.relpath(full, repo).replace(os.sep, "/")
 
 

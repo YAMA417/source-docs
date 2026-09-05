@@ -763,23 +763,23 @@ erDiagram
       <p class="desc">Markdown にはこう書かれる（抜粋）。</p>
       <pre class="src"><code>```mermaid
 flowchart TD
-    BOOKS["書籍一覧<br/>/books"] --> DETAIL["書籍詳細<br/>/books/[id]"]
-    DETAIL -->|"カートに入れる<br/>（未ログイン時はログインへ）"| CART["カート<br/>/cart"]
+    BOOKS["書籍一覧 /books"] --> DETAIL["書籍詳細 /books/[id]"]
+    DETAIL -->|"カートに入れる"| CART["カート /cart"]
     ...
 ```</code></pre>
 
       <p class="srclabel">レンダリング結果</p>
       <pre class="mermaid">
 flowchart TD
-    BOOKS["書籍一覧<br/>/books"] --> DETAIL["書籍詳細<br/>/books/[id]"]
-    DETAIL -->|"カートに入れる"| CART["カート<br/>/cart"]
-    DETAIL -.->|"未ログイン"| LOGIN["ログイン<br/>/login"]
+    BOOKS["書籍一覧 /books"] --> DETAIL["書籍詳細 /books/[id]"]
+    DETAIL -->|"カートに入れる"| CART["カート /cart"]
+    DETAIL -.->|"未ログイン"| LOGIN["ログイン /login"]
     LOGIN -->|"認証後は元の画面へ戻る"| DETAIL
-    CART -->|"注文手続きへ"| CHECKOUT["注文確認<br/>/checkout"]
-    CHECKOUT -->|"注文を確定する"| DONE["注文完了<br/>/orders/[id]/done"]
-    CHECKOUT -.->|"在庫不足<br/>OUT_OF_STOCK"| CART
-    DONE --> HISTORY["注文履歴<br/>/mypage/orders"]
-    HISTORY --> ORDERDETAIL["注文詳細<br/>/mypage/orders/[id]"]
+    CART -->|"注文手続きへ"| CHECKOUT["注文確認 /checkout"]
+    CHECKOUT -->|"注文を確定する"| DONE["注文完了 /orders/[id]/done"]
+    CHECKOUT -.->|"在庫不足 OUT_OF_STOCK"| CART
+    DONE --> HISTORY["注文履歴 /mypage/orders"]
+    HISTORY --> ORDERDETAIL["注文詳細 /mypage/orders/[id]"]
       </pre>
 
       <div class="rule-note">
@@ -790,6 +790,7 @@ flowchart TD
           <li>矢印のラベルは<strong>ユーザーの操作</strong>。「ボタン押下」ではなく画面上の実際の文言に寄せる</li>
           <li><strong>エラー・条件付きの遷移は破線</strong>にする。正常系の流れが一目で追える</li>
           <li>1 枚に詰め込まない。フローが 12 ノードを超えたら「購入フロー」「会員登録フロー」のように分ける</li>
+          <li><strong>ラベルに HTML タグを書かない。</strong> 生成 HTML は Mermaid を <code>securityLevel: strict</code> で描画するため、<code>&lt;br/&gt;</code> は改行にならず文字列として出る。画面名と Route は半角スペースで区切る</li>
         </ul>
       </div>
 

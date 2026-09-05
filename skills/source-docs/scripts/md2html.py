@@ -31,9 +31,30 @@ RE_OL = re.compile(r"^\d+\.\s+(.*)$")
 RE_QUOTE = re.compile(r"^>\s?(.*)$")
 RE_TABLE_DIVIDER = re.compile(r"^\|[\s:|-]+\|$")
 
+# 生成した HTML はブラウザで開かれる。資料の元になるのは他人のリポジトリの
+# 文字列なので、リンク先を無検査で href に入れない
+UNSAFE_SCHEMES = ("javascript:", "data:", "vbscript:", "file:", "blob:")
+
 RE_INLINE_CODE = re.compile(r"`([^`]+)`")
 RE_BOLD = re.compile(r"\*\*([^*]+)\*\*")
 RE_LINK = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
+
+
+def safe_href(href):
+    """リンク先を href に入れられる形にする。
+
+    スクリプトを実行しうるスキームは落とし、引用符はエスケープする。
+    エスケープを怠ると `"` ひとつで属性を抜けられる。
+    """
+    h = href.strip()
+    # 制御文字と空白を挟んでスキームを偽装する手口があるので先に潰す
+    compact = "".join(h.split()).lower()
+    compact = compact.replace("\x00", "")
+    if compact.startswith(UNSAFE_SCHEMES):
+        return "#"
+    if h.endswith(".md"):
+        h = h[:-3] + ".html"
+    return html.escape(h, quote=True)
 
 
 def render_inline(text):
@@ -54,9 +75,7 @@ def render_inline(text):
 
     def link(m):
         label, href = m.group(1), m.group(2)
-        if href.endswith(".md"):
-            href = href[:-3] + ".html"
-        return f'<a href="{href}">{label}</a>'
+        return f'<a href="{safe_href(href)}">{label}</a>'
 
     text = RE_LINK.sub(link, text)
 
@@ -264,7 +283,7 @@ PAGE = """\
 {body}
 </div>
 <script src="{cdn}"></script>
-<script>mermaid.initialize({{ startOnLoad: true, securityLevel: "loose" }});</script>
+<script>mermaid.initialize({{ startOnLoad: true, securityLevel: "strict" }});</script>
 </body>
 </html>
 """
@@ -281,16 +300,60 @@ def _nav_html(pages, current):
     return " ".join(parts)
 
 
+# 出力してはいけない場所。壊すと復旧できない
+FORBIDDEN_OUT_PARTS = frozenset({".git", ".svn", "node_modules"})
+
+
+def _page_names(src_dir):
+    return sorted(f[:-3] for f in os.listdir(src_dir) if f.endswith(".md"))
+
+
+def existing_targets(src_dir, out_dir):
+    """書き込むと上書きになる既存ファイルの一覧を返す。"""
+    if not os.path.isdir(out_dir):
+        return []
+    targets = [f"{n}.html" for n in _page_names(src_dir)] + ["index.html", "style.css"]
+    return [
+        os.path.join(out_dir, t) for t in targets
+        if os.path.isfile(os.path.join(out_dir, t))
+    ]
+
+
+def _check_out_dir(out_dir):
+    """出力先が壊してはいけない場所でないか確かめる。"""
+    absolute = os.path.abspath(out_dir)
+    parts = absolute.replace(os.sep, "/").split("/")
+    bad = FORBIDDEN_OUT_PARTS.intersection(p for p in parts if p)
+    if bad:
+        print(
+            f"error: 出力先に {'/'.join(sorted(bad))} が含まれている: {absolute}",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+    if absolute in ("/", os.path.expanduser("~")):
+        print(f"error: 出力先が広すぎる: {absolute}", file=sys.stderr)
+        raise SystemExit(2)
+
+
 def write_site(src_dir, out_dir):
-    """src_dir の md をすべて変換し、index と style を含めて out_dir に書く。"""
+    """src_dir の md をすべて変換し、index と style を含めて out_dir に書く。
+
+    既存ファイルを上書きする場合は、そのパスを標準エラーに出す。
+    黙って上書きしない。
+    """
     if not os.path.isdir(src_dir):
         print(f"error: 入力ディレクトリが見つかりません: {src_dir}", file=sys.stderr)
         raise SystemExit(2)
 
-    names = sorted(f[:-3] for f in os.listdir(src_dir) if f.endswith(".md"))
+    names = _page_names(src_dir)
     if not names:
         print(f"error: md ファイルがありません: {src_dir}", file=sys.stderr)
         raise SystemExit(2)
+
+    _check_out_dir(out_dir)
+
+    for path in existing_targets(src_dir, out_dir):
+        print(f"warning: 上書きする: {path}", file=sys.stderr)
 
     os.makedirs(out_dir, exist_ok=True)
 
