@@ -189,29 +189,59 @@ MANIFEST_NAMES = ("package.json", "pyproject.toml", "pubspec.yaml", "go.mod", "G
 # 種別 → glob パターン。リポジトリ相対パスに対して照合する。
 CANDIDATE_PATTERNS = {
     "schema": [
-        "*schema.prisma", "*/migrations/*.sql", "*/migrations/*/*.sql",
-        "*/schema.sql", "*/models.py", "*/models/*.py", "*/entities/*.ts",
-        "*/content-types/*/schema.json", "*/schema/*.ts", "*.schema.ts",
-        "*/db/schema*.ts", "*/drizzle/*.ts",
+        "*schema.prisma", "schema.prisma",
+        "*/migrations/*.sql", "*/migrations/*/*.sql", "migrations/*.sql",
+        "*/schema.sql", "schema.sql",
+        "*/models.py", "*/models/*.py", "models.py",
+        "*/entities/*.ts", "*/content-types/*/schema.json",
+        # Drizzle は schema.ts の置き場がプロジェクトごとに違う。
+        # packages/db/src/schema.ts / db/schema.ts / src/schema/*.ts のいずれもある
+        "*/schema.ts", "schema.ts", "*/schema/*.ts", "*.schema.ts",
+        "*/drizzle/*.ts",
     ],
     "route": [
         "*/routes/*", "*/routes/*/*", "*/controllers/*", "*/controllers/*/*",
         "*/api/*/route.ts", "*/api/*/*/route.ts", "*/pages/api/*",
         "*/pages/api/*/*", "*/handlers/*", "*/endpoints/*", "*/resolvers/*",
+        # Supabase / Netlify などの Edge Function も利用者から見える入口
+        "*/functions/*/index.ts", "*/functions/*/*.ts",
     ],
     "screen": [
-        "*/app/*/page.tsx", "*/app/*/*/page.tsx", "app/*/page.tsx",
-        "app/*/*/page.tsx", "*/pages/*.tsx", "*/screens/*", "*/views/*.vue",
-        "*/views/*.tsx", "*/lib/screens/*.dart", "*/lib/pages/*.dart",
+        # App Router。app/ 直下のトップページも画面なので忘れない
+        "app/page.tsx", "*/app/page.tsx",
+        "app/*/page.tsx", "*/app/*/page.tsx",
+        "app/*/*/page.tsx", "*/app/*/*/page.tsx",
+        "app/*/*/*/page.tsx", "*/app/*/*/*/page.tsx",
+        "*/pages/*.tsx", "pages/*.tsx",
+        "*/screens/*", "screens/*",
+        "*/views/*.vue", "*/views/*.tsx",
+        "*/lib/screens/*.dart", "*/lib/pages/*.dart",
     ],
     "integration": [
         "*/gateways/*", "*/clients/*", "*/integrations/*", "*/webhooks/*",
         "*/adapters/*", "*/external/*", "*/providers/*",
+        # 名前に webhook を含むディレクトリ。Edge Function として置かれることが多い。
+        # route にも入るが、それでよい。入口であり連携でもある
+        "*webhook*/*",
     ],
 }
 
 # 候補から外す拡張子。テストと型定義だけのファイルは入口ではない。
 CANDIDATE_SKIP_SUFFIX = (".test.ts", ".test.tsx", ".spec.ts", ".spec.tsx", ".d.ts", ".snap")
+
+# Expo Router は app/ 配下の .tsx がそのまま画面になる（page.tsx 規約ではない）。
+# スタック判定で Expo / React Native と分かったときだけこのパターンを足す。
+EXPO_SCREEN_PATTERNS = [
+    "app/*.tsx", "*/app/*.tsx",
+    "app/*/*.tsx", "*/app/*/*.tsx",
+    "app/*/*/*.tsx", "*/app/*/*/*.tsx",
+]
+
+# 画面ではないファイル名。レイアウト・状態表示は画面一覧に載せない。
+NOT_A_SCREEN = {
+    "_layout.tsx", "layout.tsx", "loading.tsx", "error.tsx", "template.tsx",
+    "not-found.tsx", "+not-found.tsx", "+html.tsx", "default.tsx", "global-error.tsx",
+}
 
 
 def _walk_files(repo):
@@ -229,13 +259,26 @@ def find_manifests(repo):
     return sorted(found)
 
 
-def find_candidates(repo):
-    """種別ごとに、読むべきファイルの候補をリポジトリ相対パスで返す。"""
-    result = {kind: set() for kind in CANDIDATE_PATTERNS}
+def find_candidates(repo, stack=None):
+    """種別ごとに、読むべきファイルの候補をリポジトリ相対パスで返す。
+
+    stack を渡すと、フレームワークごとの追加パターンを適用する。
+    Expo Router は画面の規約が Next.js と違うため、判定結果で切り替える必要がある。
+    """
+    patterns_by_kind = {k: list(v) for k, v in CANDIDATE_PATTERNS.items()}
+    if stack and any(
+        name in ("Expo", "React Native") for name in stack.get("frontend", [])
+    ):
+        patterns_by_kind["screen"].extend(EXPO_SCREEN_PATTERNS)
+
+    result = {kind: set() for kind in patterns_by_kind}
     for rel in _walk_files(repo):
         if rel.endswith(CANDIDATE_SKIP_SUFFIX):
             continue
-        for kind, patterns in CANDIDATE_PATTERNS.items():
+        basename = os.path.basename(rel)
+        for kind, patterns in patterns_by_kind.items():
+            if kind == "screen" and basename in NOT_A_SCREEN:
+                continue
             for pat in patterns:
                 if fnmatch.fnmatch(rel, pat) or fnmatch.fnmatch("/" + rel, "/" + pat):
                     result[kind].add(rel)
@@ -254,10 +297,11 @@ def survey(repos):
         deps = set()
         for m in manifests:
             deps |= read_dependencies(os.path.join(repo, m))
-        candidates = find_candidates(repo)
+        stack = detect_stack(deps)
+        candidates = find_candidates(repo, stack)
         out.append({
             "path": os.path.abspath(repo),
-            "stack": detect_stack(deps),
+            "stack": stack,
             "manifests": manifests,
             "candidates": candidates,
             "counts": {k: len(v) for k, v in candidates.items()},
