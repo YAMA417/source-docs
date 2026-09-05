@@ -15,9 +15,12 @@
     2  引数・入出力の誤り
 """
 
+import argparse
+import fnmatch
 import json
 import os
 import re
+import sys
 
 # 依存名 → (区分, 表示名)
 FRAMEWORK_HINTS = {
@@ -173,3 +176,122 @@ def detect_stack(deps):
         if dep in DB_HINTS:
             stack["db"].add(DB_HINTS[dep])
     return {k: sorted(v) for k, v in stack.items()}
+
+
+SKIP_DIRS = {
+    ".git", "node_modules", "dist", "build", ".next", ".turbo", "coverage",
+    ".dart_tool", "vendor", "__pycache__", ".venv", "venv", ".idea", ".vscode",
+    "ios", "android", ".gradle", "Pods", ".expo", "out",
+}
+
+MANIFEST_NAMES = ("package.json", "pyproject.toml", "pubspec.yaml", "go.mod", "Gemfile")
+
+# 種別 → glob パターン。リポジトリ相対パスに対して照合する。
+CANDIDATE_PATTERNS = {
+    "schema": [
+        "*schema.prisma", "*/migrations/*.sql", "*/migrations/*/*.sql",
+        "*/schema.sql", "*/models.py", "*/models/*.py", "*/entities/*.ts",
+        "*/content-types/*/schema.json", "*/schema/*.ts", "*.schema.ts",
+        "*/db/schema*.ts", "*/drizzle/*.ts",
+    ],
+    "route": [
+        "*/routes/*", "*/routes/*/*", "*/controllers/*", "*/controllers/*/*",
+        "*/api/*/route.ts", "*/api/*/*/route.ts", "*/pages/api/*",
+        "*/pages/api/*/*", "*/handlers/*", "*/endpoints/*", "*/resolvers/*",
+    ],
+    "screen": [
+        "*/app/*/page.tsx", "*/app/*/*/page.tsx", "app/*/page.tsx",
+        "app/*/*/page.tsx", "*/pages/*.tsx", "*/screens/*", "*/views/*.vue",
+        "*/views/*.tsx", "*/lib/screens/*.dart", "*/lib/pages/*.dart",
+    ],
+    "integration": [
+        "*/gateways/*", "*/clients/*", "*/integrations/*", "*/webhooks/*",
+        "*/adapters/*", "*/external/*", "*/providers/*",
+    ],
+}
+
+# 候補から外す拡張子。テストと型定義だけのファイルは入口ではない。
+CANDIDATE_SKIP_SUFFIX = (".test.ts", ".test.tsx", ".spec.ts", ".spec.tsx", ".d.ts", ".snap")
+
+
+def _walk_files(repo):
+    """リポジトリ相対パスを列挙する。除外ディレクトリは降りない。"""
+    for root, dirs, files in os.walk(repo):
+        dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+        for name in files:
+            full = os.path.join(root, name)
+            yield os.path.relpath(full, repo).replace(os.sep, "/")
+
+
+def find_manifests(repo):
+    """リポジトリ内の manifest をリポジトリ相対パスで返す。"""
+    found = [p for p in _walk_files(repo) if os.path.basename(p) in MANIFEST_NAMES]
+    return sorted(found)
+
+
+def find_candidates(repo):
+    """種別ごとに、読むべきファイルの候補をリポジトリ相対パスで返す。"""
+    result = {kind: set() for kind in CANDIDATE_PATTERNS}
+    for rel in _walk_files(repo):
+        if rel.endswith(CANDIDATE_SKIP_SUFFIX):
+            continue
+        for kind, patterns in CANDIDATE_PATTERNS.items():
+            for pat in patterns:
+                if fnmatch.fnmatch(rel, pat) or fnmatch.fnmatch("/" + rel, "/" + pat):
+                    result[kind].add(rel)
+                    break
+    return {k: sorted(v) for k, v in result.items()}
+
+
+def survey(repos):
+    """リポジトリごとに、スタック判定と候補列挙をまとめる。"""
+    out = []
+    for repo in repos:
+        if not os.path.isdir(repo):
+            print(f"error: リポジトリが見つかりません: {repo}", file=sys.stderr)
+            raise SystemExit(2)
+        manifests = find_manifests(repo)
+        deps = set()
+        for m in manifests:
+            deps |= read_dependencies(os.path.join(repo, m))
+        candidates = find_candidates(repo)
+        out.append({
+            "path": os.path.abspath(repo),
+            "stack": detect_stack(deps),
+            "manifests": manifests,
+            "candidates": candidates,
+            "counts": {k: len(v) for k, v in candidates.items()},
+        })
+    return {"repos": out}
+
+
+def _print_human(result):
+    for repo in result["repos"]:
+        print(f"REPO {repo['path']}")
+        stack = repo["stack"]
+        for key in ("frontend", "backend", "orm", "db"):
+            value = ", ".join(stack[key]) if stack[key] else "判定できず"
+            print(f"  {key:<9} {value}")
+        print(f"  manifests {', '.join(repo['manifests']) or 'なし'}")
+        for kind, count in repo["counts"].items():
+            print(f"  {kind:<9} {count} 件")
+        print()
+
+
+def main():
+    ap = argparse.ArgumentParser(description="スタック判定と候補列挙")
+    ap.add_argument("--repo", action="append", required=True, help="対象リポジトリ（複数可）")
+    ap.add_argument("--json", action="store_true", help="JSON で出力する")
+    args = ap.parse_args()
+
+    result = survey(args.repo)
+
+    if args.json:
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+    else:
+        _print_human(result)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
