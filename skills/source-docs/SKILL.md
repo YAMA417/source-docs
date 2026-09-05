@@ -36,6 +36,11 @@ description: 既存プロジェクトのソースコードを読み、初見の�
 /source-docs --repo ./frontend --repo ./backend
 ```
 
+**プラグインとして入れた場合、起動名は `/source-docs:source-docs` になる**
+（プラグインのスキルは `plugin-name:skill-name` の名前空間を持つ）。
+個人スキル・プロジェクトスキルとして入れた場合は `/source-docs`。
+どちらでも description による自動起動は同じように効く。
+
 ER 図とビュー章は `db` に、画面遷移図と画面-API-DB 関連は `screens` に含む。
 図だけ単独で作り直す用途がないため、別ターゲットにしない。
 
@@ -55,8 +60,18 @@ ER 図とビュー章は `db` に、画面遷移図と画面-API-DB 関連は `s
 
 ## スクリプトの実行
 
-同梱スクリプトは**このスキルのディレクトリからの相対パス**で呼ぶ。
-配置場所は環境によって変わるので、絶対パスを組み立てない。
+**このファイル（SKILL.md）が置かれているディレクトリを基準に呼ぶ。**
+以下では `<skill-dir>` と書く。実行時にその実パスへ置き換える。
+
+配置場所は 3 通りある。どこに入っていても、SKILL.md と同じディレクトリの
+`scripts/` に 4 本のスクリプトがある。
+
+- プラグイン — `~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/skills/source-docs/`
+- 個人スキル — `~/.claude/skills/source-docs/`
+- プロジェクトスキル — `<project>/.claude/skills/source-docs/`
+
+**利用者の作業ディレクトリからの相対パスで呼ばない。** `python3 <skill-dir>/scripts/inventory.py`
+と打つと、対象リポジトリ直下の `scripts/` を探して失敗する。
 
 ## 開かないファイル
 
@@ -74,14 +89,21 @@ ER 図とビュー章は `db` に、画面遷移図と画面-API-DB 関連は `s
 自分で開いてしまえば意味がない。
 
 例外は `.env.example` / `.env.sample` / `.env.template`。外部連携の変数名を知るために読む。
-**変数名だけを見る。値が書かれていても読まないし、資料にも書かない。**
+
+**ただし、開けば値も見える。** 「読むが値は見ない」は約束であって仕組みではない。
+テンプレートに実値が書かれているプロジェクトもある。次を守る。
+
+- 変数名の一覧を得たら**それ以上読まない**
+- 値を資料に書かない。`=` の右側は転記しない
+- 値らしきものが書かれていたら、その事実を人間に伝える（テンプレートに実値が入っている、
+  という指摘自体が有用）
 
 ## 00 スタック判定
 
 `references/detect.md` を読む。
 
 ```bash
-python3 scripts/inventory.py --repo <path> [--repo <path>...]
+python3 <skill-dir>/scripts/inventory.py --repo <path> [--repo <path>...]
 ```
 
 フロント / バック / ORM / DB を判定する。**判定結果を鵜呑みにしない。**
@@ -122,8 +144,8 @@ python3 scripts/inventory.py --repo <path> [--repo <path>...]
 続けて照合と機密検出を**両方**走らせる。片方だけで先へ進まない。
 
 ```bash
-python3 scripts/verify.py --doc <生成した md> --repo <path> [--repo <path>...]
-python3 scripts/secrets.py --doc <生成した md>
+python3 <skill-dir>/scripts/verify.py --doc <生成した md> --repo <path> [--repo <path>...]
+python3 <skill-dir>/scripts/secrets.py --doc <生成した md>
 ```
 
 - 照合が不一致 → 指摘を材料に**再生成する。リトライは 1 回だけ**
@@ -154,10 +176,12 @@ API が 100 本を超えるような場合は、ディレクトリ単位で読�
 `--format` が `html` または `both` のときだけ実行する。
 
 ```bash
-python3 scripts/md2html.py --src <out> --out <out>/html
+python3 <skill-dir>/scripts/md2html.py --src <out> --out <out>/html
 ```
 
-`index.html` と資料ごとのページ、共通 CSS が出る。Mermaid はブラウザで描画される。
+`index.html` と資料ごとのページ、共通 CSS が出る。Mermaid は CDN のスクリプトで
+描画される（SRI 付き）。**外部スクリプトを一切読み込みたくない場合は `--no-mermaid`**
+を付ける。図は描画されずコードのまま残る。
 
 ## 05 完了報告
 

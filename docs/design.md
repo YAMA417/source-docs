@@ -135,6 +135,53 @@ ER 図は `database.md` の 1 章、画面遷移図と画面-API-DB 関連は `s
 - **推測** — 原則書かない。書く場合は「推測」と明示し、根拠にした箇所を併記する
 - **機械照合** — `verify.py` がエンドポイント / テーブル名 / errorType の実在を照合。不一致は 1 回だけ再生成し、2 回目も不一致なら未確認として残す
 
+## セキュリティ
+
+このスキルは**他人のリポジトリを読む。** 前提として次を守る。
+
+### 読まない
+
+`scripts/_secure.py` が判定し、`inventory.py` と `verify.py` が適用する。
+SKILL.md にも同じ規則を書き、Claude が自分で Read / Grep するときも守らせる。
+
+- 環境変数の実ファイル（`.env` / `.env.local` / `.env.production`）
+- 鍵そのもの（`*.pem` / `*.key` / `*.p12` / `*.jks` / `id_rsa`）
+- 認証情報ファイル（`credentials.json` / `service-account.json` / `.npmrc` / `.netrc` / `terraform.tfvars`）
+- ディレクトリごと（`.ssh/` / `.aws/` / `.gnupg/` / `.kube/` / `credentials/` / `secrets/`）
+- **シンボリックリンク。** 名前が `schema.ts` でもリンク先は分からない
+
+例外は `.env.example` などのテンプレートのみ。外部連携の変数名を知るために読み、
+**変数名しか見ない。**
+
+### 書き出さない
+
+- 機密検出（`secrets.py`）を**各資料の生成直後に走らせる。** 完了報告時の 1 回では、
+  書いてから気づくまでが遠い
+- 検出値は**既定で伏せる。** ターミナルやログに機密が残らないため。
+  中身を見るときは `--reveal` を明示する
+- **検出しても自動で伏せ字にしない。** 誤検知が出るので判断は人間に回す
+
+### 生成 HTML
+
+`md2html.py` の出力はブラウザで開かれる。元になるのは他人のリポジトリの文字列なので、
+無検査で HTML に入れない。
+
+- リンクの `javascript:` / `data:` / `vbscript:` スキームを落とし、`href` を属性としてエスケープする
+- Mermaid は `securityLevel: strict`。あわせて図のラベルで HTML タグを使わない
+- 出力先が `.git` / `node_modules` を含む、またはホーム直下なら拒否する
+- 既存ファイルの上書きは標準エラーに出す。黙って上書きしない
+
+### 外部送信
+
+**しない。** ネットワークへ出す処理は同梱スクリプトに無く、依存も標準ライブラリだけなので、
+外部パッケージ経由の送信経路も無い。
+
+### 防げないこと
+
+- 機密検出は誤検知も見落としもある。パターンに無い形式のトークンは検出できない
+- 除外リストは名前で判定する。変わった名前のファイルに秘密が入っていれば読んでしまう
+- **公開前に人間が読む必要がある。** 社外へ出す資料は特に
+
 ## コンテキスト管理
 
 1. **スクリプトが先に絞る** — `inventory.py` が候補を出し、Claude はその周辺だけを開く
@@ -146,35 +193,49 @@ ER 図は `database.md` の 1 章、画面遷移図と画面-API-DB 関連は `s
 ## ディレクトリ構成
 
 ```
-design-doc-skill/
+source-docs/                       リポジトリ（marketplace 兼 plugin）
 ├── README.md
 ├── LICENSE
+├── .claude-plugin/
+│   ├── marketplace.json           リポジトリ自身を 1 プラグインとして登録
+│   └── plugin.json
 ├── docs/
-│   ├── design.md              この文書
-│   ├── design-overview.html   図と 12 項目の設計
-│   └── output-sample.html     出力サンプル
-└── skill/                     ~/.claude/skills/source-docs/ へ置く中身
-    ├── SKILL.md               ワークフローとゲート。固有知識は書かない
-    ├── references/
-    │   ├── detect.md          スタック判定の手順
-    │   ├── db.md
-    │   ├── api.md
-    │   ├── screens.md
-    │   ├── integrations.md
-    │   ├── writing.md         章立て・図・文体・書かないこと
-    │   └── stacks/            後から足せる差し込み口
-    ├── templates/
-    │   ├── overview.md
-    │   ├── database.md
-    │   ├── api.md
-    │   ├── screens.md
-    │   └── integrations.md
-    └── scripts/
-        ├── inventory.py
-        ├── verify.py
-        ├── secrets.py
-        └── md2html.py
+│   ├── design.md                  この文書
+│   ├── design-overview.html       図と 12 項目の設計
+│   ├── output-sample.html         出力サンプル
+│   └── implementation-plan.md
+├── tests/                         標準 unittest。追加依存なし
+└── skills/
+    └── source-docs/
+        ├── SKILL.md               ワークフローとゲート。固有知識は書かない
+        ├── references/
+        │   ├── detect.md          スタック判定の手順
+        │   ├── db.md
+        │   ├── api.md
+        │   ├── screens.md
+        │   ├── integrations.md
+        │   ├── writing.md         章立て・図・文体・書かないこと
+        │   └── stacks/            後から足せる差し込み口
+        ├── templates/
+        │   ├── overview.md
+        │   ├── database.md
+        │   ├── api.md
+        │   ├── screens.md
+        │   └── integrations.md
+        └── scripts/
+            ├── _secure.py         開いてはいけないファイルの判定
+            ├── inventory.py
+            ├── verify.py
+            ├── secrets.py
+            └── md2html.py
 ```
+
+`skills/<skill-name>/SKILL.md` はプラグインの規約。この配置にしたことで、
+プラグインとしても、個人スキル（`~/.claude/skills/`）としても、
+プロジェクトスキル（`<project>/.claude/skills/`）としても同じ中身が使える。
+
+スクリプトは**このスキルのディレクトリからの相対パス**で呼ぶ。
+配置場所が 3 通りあるので、絶対パスを組み立てない。
 
 `notes/` は案件固有の情報を含むため公開しない（`.gitignore`）。
 
@@ -204,6 +265,16 @@ SKILL.md は常時コンテキストに載る。厚いと実作業の余地が�
 3. **出力形式のプラグイン化** — 形式が 2 つの時点で抽象化すると、3 つ目で作り直す。md を正本に固定すれば変換器を 1 本足すだけで済む
 4. **symbol 単位の追跡** — リファクタのたびに資料が壊れる。ファイル単位なら移動に強く、読み手が探すコストもほとんど変わらない
 5. **人間の補足編集との共存を MVP で設計** — 順序が逆。生成物が実用に足るかを 3 プロジェクトで確かめ、補足を書きたくなる箇所が分かってから決める
+
+## 配布
+
+1 リポジトリを marketplace 兼 plugin にしてある。利用者の導線は 3 通り。
+
+- **プラグイン** — `/plugin marketplace add <owner>/source-docs` → `/plugin install source-docs@source-docs`。更新は `/plugin marketplace update`
+- **個人スキル** — `skills/source-docs/` の中身を `~/.claude/skills/source-docs/` へ。全プロジェクトで使える
+- **プロジェクトスキル** — `<project>/.claude/skills/source-docs/` へ。リポジトリに commit すればチーム全員が使える
+
+依存は Python 3 標準ライブラリのみ。追加インストールを利用者に要求しない。
 
 ## このスキルの限界
 

@@ -132,3 +132,24 @@ class SecretFileSkipTest(unittest.TestCase):
             with open(os.path.join(repo, "credentials", "package.json"), "w", encoding="utf-8") as f:
                 f.write('{"dependencies":{"evil":"1"}}')
             self.assertEqual(inventory.find_manifests(repo), ["package.json"])
+
+
+class GlobDepthTest(unittest.TestCase):
+    def test_star_does_not_cross_slash(self):
+        """app/*/page.tsx は 1 階層だけに一致する。"""
+        self.assertTrue(inventory.match_path("app/a/page.tsx", "app/*/page.tsx"))
+        self.assertFalse(inventory.match_path("app/a/b/c/page.tsx", "app/*/page.tsx"))
+
+    def test_leading_star_matches_zero_dirs(self):
+        """*/routes/* はリポジトリ直下の routes/ にも一致する。"""
+        self.assertTrue(inventory.match_path("routes/orders.ts", "*/routes/*"))
+        self.assertTrue(inventory.match_path("src/routes/orders.ts", "*/routes/*"))
+
+    def test_root_level_route_is_a_candidate(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as repo:
+            os.makedirs(os.path.join(repo, "routes"))
+            with open(os.path.join(repo, "routes", "orders.ts"), "w", encoding="utf-8") as f:
+                f.write("x")
+            c = inventory.find_candidates(repo)
+            self.assertIn("routes/orders.ts", c["route"])

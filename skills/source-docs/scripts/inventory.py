@@ -78,25 +78,51 @@ DB_HINTS = {
 
 RE_PY_DEP = re.compile(r"^\s*[\"']([A-Za-z0-9_.\-]+)")
 RE_YAML_DEP = re.compile(r"^  ([A-Za-z0-9_]+):")
-RE_GO_DEP = re.compile(r"^\s+([a-z0-9.\-]+\.[a-z]{2,}/[^\s]+)\s+v")
+# ブロック形式（行頭がタブ）と単一行形式（`require x v1.0`）の両方
+RE_GO_DEP = re.compile(r"^\s*(?:require\s+)?([a-z0-9.\-]+\.[a-z]{2,}/[^\s]+)\s+v")
+
+
+RE_POETRY_DEP = re.compile(r"^\s*([A-Za-z0-9_.\-]+)\s*=")
 
 
 def _read_pyproject(text):
-    """[project] の dependencies と [tool.poetry.dependencies] の両方を見る。"""
+    """PEP 621 の `[project] dependencies` と Poetry の両方を見る。
+
+    Poetry は `[tool.poetry.dependencies]` の下に `名前 = "^1.2"` の形で並ぶ。
+    PEP 621 は `dependencies = ["名前>=1.2", ...]` の配列。書式が違う。
+    """
     deps = set()
-    in_deps = False
+    in_pep621 = False
+    in_poetry = False
+
     for line in text.splitlines():
         stripped = line.strip()
-        if stripped.startswith("dependencies"):
-            in_deps = True
+
+        if stripped.startswith("["):
+            in_pep621 = False
+            in_poetry = stripped.startswith("[tool.poetry.dependencies]") or \
+                stripped.startswith("[tool.poetry.group.") or \
+                stripped.startswith("[tool.poetry.dev-dependencies]")
             continue
-        if in_deps:
-            if stripped.startswith("]") or stripped.startswith("["):
-                in_deps = False
+
+        if in_poetry:
+            m = RE_POETRY_DEP.match(line)
+            if m and m.group(1).lower() != "python":
+                deps.add(m.group(1).lower())
+            continue
+
+        if stripped.startswith("dependencies"):
+            in_pep621 = True
+            continue
+
+        if in_pep621:
+            if stripped.startswith("]"):
+                in_pep621 = False
                 continue
             m = RE_PY_DEP.match(line)
             if m:
                 deps.add(m.group(1).lower())
+
     return deps
 
 
@@ -131,6 +157,14 @@ def _read_go_mod(text):
     return deps
 
 
+RE_GEM = re.compile(r"^\s*gem\s+[\"\']([A-Za-z0-9_.\-]+)[\"\']")
+
+
+def _read_gemfile(text):
+    """Gemfile の `gem "名前"` を拾う。"""
+    return {m.group(1) for m in (RE_GEM.match(ln) for ln in text.splitlines()) if m}
+
+
 def read_dependencies(manifest_path):
     """manifest から依存名の集合を返す。読めなければ空集合。
 
@@ -151,9 +185,14 @@ def read_dependencies(manifest_path):
             data = json.loads(text)
         except json.JSONDecodeError:
             return set()
+        if not isinstance(data, dict):
+            return set()
         deps = set()
         for key in ("dependencies", "devDependencies", "peerDependencies"):
-            deps.update(data.get(key, {}).keys())
+            section = data.get(key)
+            # 壊れた manifest や配列形式でも落ちないようにする
+            if isinstance(section, dict):
+                deps.update(section.keys())
         return deps
 
     if name == "pyproject.toml":
@@ -162,6 +201,8 @@ def read_dependencies(manifest_path):
         return _read_pubspec(text)
     if name == "go.mod":
         return _read_go_mod(text)
+    if name == "Gemfile":
+        return _read_gemfile(text)
 
     return set()
 
@@ -188,34 +229,38 @@ SKIP_DIRS = {
 
 MANIFEST_NAMES = ("package.json", "pyproject.toml", "pubspec.yaml", "go.mod", "Gemfile")
 
-# 種別 → glob パターン。リポジトリ相対パスに対して照合する。
+# 種別 → パターン。リポジトリ相対パスに `match_path` で照合する。
+#
+# 先頭の `*/` は「0 個以上のディレクトリ」を意味する。それ以外の `*` は
+# 1 セグメント内だけに効く。`app/*/page.tsx` は 1 階層だけに一致し、
+# `app/a/b/c/page.tsx` には一致しない。
 CANDIDATE_PATTERNS = {
     "schema": [
-        "*schema.prisma", "schema.prisma",
-        "*/migrations/*.sql", "*/migrations/*/*.sql", "migrations/*.sql",
-        "*/schema.sql", "schema.sql",
-        "*/models.py", "*/models/*.py", "models.py",
-        "*/entities/*.ts", "*/content-types/*/schema.json",
-        # Drizzle は schema.ts の置き場がプロジェクトごとに違う。
-        # packages/db/src/schema.ts / db/schema.ts / src/schema/*.ts のいずれもある
-        "*/schema.ts", "schema.ts", "*/schema/*.ts", "*.schema.ts",
+        "*/schema.prisma",
+        "*/migrations/*.sql", "*/migrations/*/*.sql",
+        "*/schema.sql",
+        "*/models.py", "*/models/*.py",
+        "*/entities/*.ts",
+        "*/content-types/*/schema.json",
+        # Drizzle は schema.ts の置き場がプロジェクトごとに違う
+        "*/schema.ts", "*/schema/*.ts", "*/*.schema.ts",
         "*/drizzle/*.ts",
     ],
     "route": [
-        "*/routes/*", "*/routes/*/*", "*/controllers/*", "*/controllers/*/*",
-        "*/api/*/route.ts", "*/api/*/*/route.ts", "*/pages/api/*",
-        "*/pages/api/*/*", "*/handlers/*", "*/endpoints/*", "*/resolvers/*",
+        "*/routes/*", "*/routes/*/*",
+        "*/controllers/*", "*/controllers/*/*",
+        "*/api/*/route.ts", "*/api/*/*/route.ts", "*/api/*/*/*/route.ts",
+        "*/pages/api/*", "*/pages/api/*/*",
+        "*/handlers/*", "*/endpoints/*", "*/resolvers/*",
         # Supabase / Netlify などの Edge Function も利用者から見える入口
         "*/functions/*/index.ts", "*/functions/*/*.ts",
     ],
     "screen": [
         # App Router。app/ 直下のトップページも画面なので忘れない
-        "app/page.tsx", "*/app/page.tsx",
-        "app/*/page.tsx", "*/app/*/page.tsx",
-        "app/*/*/page.tsx", "*/app/*/*/page.tsx",
-        "app/*/*/*/page.tsx", "*/app/*/*/*/page.tsx",
-        "*/pages/*.tsx", "pages/*.tsx",
-        "*/screens/*", "screens/*",
+        "*/app/page.tsx",
+        "*/app/*/page.tsx", "*/app/*/*/page.tsx", "*/app/*/*/*/page.tsx",
+        "*/pages/*.tsx",
+        "*/screens/*", "*/screens/*/*",
         "*/views/*.vue", "*/views/*.tsx",
         "*/lib/screens/*.dart", "*/lib/pages/*.dart",
     ],
@@ -224,7 +269,7 @@ CANDIDATE_PATTERNS = {
         "*/adapters/*", "*/external/*", "*/providers/*",
         # 名前に webhook を含むディレクトリ。Edge Function として置かれることが多い。
         # route にも入るが、それでよい。入口であり連携でもある
-        "*webhook*/*",
+        "*/*webhook*/*",
     ],
 }
 
@@ -234,9 +279,9 @@ CANDIDATE_SKIP_SUFFIX = (".test.ts", ".test.tsx", ".spec.ts", ".spec.tsx", ".d.t
 # Expo Router は app/ 配下の .tsx がそのまま画面になる（page.tsx 規約ではない）。
 # スタック判定で Expo / React Native と分かったときだけこのパターンを足す。
 EXPO_SCREEN_PATTERNS = [
-    "app/*.tsx", "*/app/*.tsx",
-    "app/*/*.tsx", "*/app/*/*.tsx",
-    "app/*/*/*.tsx", "*/app/*/*/*.tsx",
+    "*/app/*.tsx",
+    "*/app/*/*.tsx",
+    "*/app/*/*/*.tsx",
 ]
 
 # 画面ではないファイル名。レイアウト・状態表示は画面一覧に載せない。
@@ -244,6 +289,39 @@ NOT_A_SCREEN = {
     "_layout.tsx", "layout.tsx", "loading.tsx", "error.tsx", "template.tsx",
     "not-found.tsx", "+not-found.tsx", "+html.tsx", "default.tsx", "global-error.tsx",
 }
+
+
+def match_path(rel, pattern):
+    """リポジトリ相対パスをパターンに照合する。
+
+    `fnmatch` は `*` が `/` をまたぐため、`app/*/page.tsx` が
+    `app/a/b/c/page.tsx` にも一致してしまい、深さ別のパターンが意味をなさない。
+    ここではセグメント単位で照合し、`*` は 1 セグメント内だけに効かせる。
+
+    先頭の `*/` だけは「0 個以上のディレクトリ」として扱う。
+    `*/routes/*` をリポジトリ直下の `routes/orders.ts` にも当てるため。
+    """
+    pat_parts = pattern.split("/")
+    rel_parts = rel.split("/")
+
+    if pat_parts and pat_parts[0] == "*":
+        rest = pat_parts[1:]
+        # 0 個以上のディレクトリを読み飛ばして、残りが一致する位置を探す
+        for start in range(0, len(rel_parts) - len(rest) + 1):
+            if _match_segments(rel_parts[start:], rest):
+                return True
+        return False
+
+    return _match_segments(rel_parts, pat_parts)
+
+
+def _match_segments(rel_parts, pat_parts):
+    """セグメント数が一致し、各セグメントが fnmatch で一致するか。"""
+    if len(rel_parts) != len(pat_parts):
+        return False
+    return all(
+        fnmatch.fnmatch(r, p) for r, p in zip(rel_parts, pat_parts)
+    )
 
 
 def _walk_files(repo):
@@ -291,7 +369,7 @@ def find_candidates(repo, stack=None):
             if kind == "screen" and basename in NOT_A_SCREEN:
                 continue
             for pat in patterns:
-                if fnmatch.fnmatch(rel, pat) or fnmatch.fnmatch("/" + rel, "/" + pat):
+                if match_path(rel, pat):
                     result[kind].add(rel)
                     break
     return {k: sorted(v) for k, v in result.items()}

@@ -75,3 +75,25 @@ class SecretFileSkipTest(unittest.TestCase):
             self.assertNotIn("SECRET_TOKEN", sources)
             self.assertNotIn("BEGIN PRIVATE KEY", sources)
             self.assertEqual(count, 1)
+
+
+class HttpMethodTest(unittest.TestCase):
+    def test_method_mismatch_is_detected(self):
+        """GET でしか定義されていないパスを POST と書いたら不一致にする。"""
+        sources = 'router.get("/only-get", handler)'
+        self.assertFalse(verify.endpoint_exists("POST", "/only-get", sources))
+
+    def test_matching_method_passes(self):
+        sources = 'router.post("/orders", handler)'
+        self.assertTrue(verify.endpoint_exists("POST", "/orders", sources))
+
+    def test_method_unknown_falls_back_to_path(self):
+        """メソッドが読み取れない書き方なら、パスの照合だけで通す。"""
+        sources = 'export const routes = { "/orders": handler }'
+        self.assertTrue(verify.endpoint_exists("POST", "/orders", sources))
+
+
+class DividerTest(unittest.TestCase):
+    def test_empty_row_is_not_a_divider(self):
+        doc = "| テーブル | 用途 |\n| --- | --- |\n|  |  |\n| `orders` | 注文 |\n"
+        self.assertIn("orders", verify.extract_tables(doc))
