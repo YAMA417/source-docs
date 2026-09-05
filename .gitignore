@@ -1,0 +1,13 @@
+# WSL が生成するメタデータ
+*:Zone.Identifier
+
+# 案件固有の情報を含むため公開しない
+notes/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+
+# OS
+.DS_Store

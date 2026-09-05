@@ -1,0 +1,965 @@
+<title>source-docs 出力サンプル</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+JP:wght@400;500;600&family=Shippori+Mincho+B1:wght@600;800&display=swap">
+<style>
+  :root {
+    --ground: #F4F6F5;
+    --surface: #FFFFFF;
+    --surface-2: #EAEEEC;
+    --ink: #14181A;
+    --ink-2: #495356;
+    --ink-3: #7C8688;
+    --line: #D7DDDA;
+    --line-strong: #B6BFBC;
+    --accent: #1C6A57;
+    --accent-soft: #E0EDE8;
+    --flag: #94472F;
+    --flag-soft: #F6E9E4;
+    --sans: "IBM Plex Sans JP", "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
+    --mincho: "Shippori Mincho B1", "Hiragino Mincho ProN", "Yu Mincho", serif;
+    --mono: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #101416;
+      --surface: #171C1F;
+      --surface-2: #1E2528;
+      --ink: #E3E8E7;
+      --ink-2: #A5B0B0;
+      --ink-3: #76817F;
+      --line: #29312F;
+      --line-strong: #3C4644;
+      --accent: #4FBF9F;
+      --accent-soft: #16302A;
+      --flag: #DB8E76;
+      --flag-soft: #33211B;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground: #101416;
+    --surface: #171C1F;
+    --surface-2: #1E2528;
+    --ink: #E3E8E7;
+    --ink-2: #A5B0B0;
+    --ink-3: #76817F;
+    --line: #29312F;
+    --line-strong: #3C4644;
+    --accent: #4FBF9F;
+    --accent-soft: #16302A;
+    --flag: #DB8E76;
+    --flag-soft: #33211B;
+  }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.85;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .shell { max-width: 900px; margin: 0 auto; padding: 0 24px 96px; }
+
+  .masthead {
+    padding: 68px 0 36px;
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 44px;
+  }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 16px;
+  }
+  .masthead h1 {
+    font-family: var(--mincho);
+    font-weight: 800;
+    font-size: clamp(32px, 5vw, 46px);
+    line-height: 1.26;
+    margin: 0 0 18px;
+    text-wrap: balance;
+  }
+  .lede { font-size: 16.5px; color: var(--ink-2); max-width: 62ch; margin: 0 0 12px; }
+
+  .premise {
+    background: var(--accent-soft);
+    border-left: 2px solid var(--accent);
+    padding: 16px 20px;
+    border-radius: 0 3px 3px 0;
+    margin: 26px 0 0;
+    max-width: 68ch;
+  }
+  .premise p { margin: 0 0 8px; font-size: 14px; }
+  .premise p:last-child { margin: 0; }
+  .premise b { font-weight: 600; }
+
+  /* document sheet */
+  .sheet {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    margin-bottom: 48px;
+    overflow: hidden;
+  }
+  .sheet-head {
+    background: var(--surface-2);
+    border-bottom: 1px solid var(--line);
+    padding: 13px 22px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 12px;
+  }
+  .sheet-head .fname {
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--accent);
+  }
+  .sheet-head .kind {
+    font-size: 12px;
+    color: var(--ink-3);
+    margin-left: auto;
+  }
+  .sheet-chapters {
+    padding: 12px 22px;
+    border-bottom: 1px solid var(--line);
+    font-size: 12.5px;
+    color: var(--ink-3);
+    font-family: var(--mono);
+    line-height: 1.9;
+  }
+  .sheet-chapters b {
+    color: var(--ink-2);
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-size: 10.5px;
+    display: block;
+    margin-bottom: 2px;
+  }
+  .sheet-body { padding: 26px 22px 30px; }
+  @media (min-width: 700px) { .sheet-body { padding: 30px 32px 34px; } }
+
+  /* rendered doc typography */
+  .sheet-body h2 {
+    font-family: var(--mincho);
+    font-weight: 600;
+    font-size: 23px;
+    margin: 0 0 20px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--line);
+  }
+  .sheet-body h3 {
+    font-size: 16px;
+    font-weight: 600;
+    margin: 32px 0 4px;
+    color: var(--ink);
+  }
+  .sheet-body h3:first-of-type { margin-top: 0; }
+  .sheet-body h3 code { font-size: 0.92em; background: none; padding: 0; color: var(--accent); }
+  .sheet-body h4 {
+    font-size: 13.5px;
+    font-weight: 600;
+    margin: 22px 0 8px;
+    color: var(--ink-2);
+  }
+  .sheet-body p { margin: 0 0 12px; font-size: 14px; }
+  .sheet-body > p:first-child { margin-top: 0; }
+  .sheet-body ul { margin: 0 0 14px; padding-left: 20px; font-size: 14px; }
+  .sheet-body li { margin-bottom: 5px; }
+  .desc { color: var(--ink-2); font-size: 13.5px; margin: 0 0 18px !important; }
+
+  code {
+    font-family: var(--mono);
+    font-size: 0.875em;
+    background: var(--surface-2);
+    padding: 1px 5px;
+    border-radius: 2px;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    margin: 0 0 16px;
+    line-height: 1.65;
+  }
+  .scroll { overflow-x: auto; margin: 0 0 16px; }
+  .scroll table { margin: 0; min-width: 560px; }
+  th {
+    text-align: left;
+    font-weight: 500;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    border-bottom: 1px solid var(--line-strong);
+    padding: 8px 10px 8px 0;
+    white-space: nowrap;
+  }
+  td {
+    border-bottom: 1px solid var(--line);
+    padding: 9px 10px 9px 0;
+    vertical-align: top;
+    color: var(--ink-2);
+  }
+  td:first-child { color: var(--ink); }
+  td code { font-size: 12px; }
+  .num { font-variant-numeric: tabular-nums; }
+  .unk { color: var(--flag); font-weight: 500; }
+  .pk, .fk {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.05em;
+    padding: 1px 5px;
+    border-radius: 2px;
+    white-space: nowrap;
+  }
+  .pk { background: var(--accent-soft); color: var(--accent); }
+  .fk { background: var(--surface-2); color: var(--ink-2); }
+
+  .meta {
+    background: var(--surface-2);
+    border-radius: 3px;
+    padding: 14px 16px;
+    margin: 0 0 8px;
+    font-size: 13px;
+  }
+  .meta dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; }
+  .meta dt {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    color: var(--ink-3);
+    text-transform: uppercase;
+    padding-top: 3px;
+    white-space: nowrap;
+  }
+  .meta dd { margin: 0; color: var(--ink-2); }
+  .meta dd code { background: var(--surface); }
+
+  pre.src {
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 1.8;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    padding: 15px 18px;
+    overflow-x: auto;
+    margin: 0 0 8px;
+    color: var(--ink-2);
+  }
+  pre.json { color: var(--ink-2); }
+
+  .srclabel {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    margin: 20px 0 6px;
+  }
+
+  pre.mermaid {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    padding: 20px 16px;
+    margin: 0 0 8px;
+    overflow-x: auto;
+    text-align: center;
+  }
+
+  .rule-note {
+    border-top: 1px solid var(--line);
+    margin-top: 30px;
+    padding-top: 18px;
+    font-size: 13px;
+    color: var(--ink-3);
+    line-height: 1.75;
+  }
+  .rule-note b {
+    display: block;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 8px;
+    font-weight: 500;
+  }
+  .rule-note ul { margin: 0; padding-left: 18px; font-size: 13px; }
+  .rule-note li { margin-bottom: 5px; }
+
+  .flagbox {
+    background: var(--flag-soft);
+    border-left: 2px solid var(--flag);
+    padding: 13px 16px;
+    border-radius: 0 3px 3px 0;
+    margin: 0 0 16px;
+    font-size: 13.5px;
+    color: var(--ink-2);
+  }
+  .flagbox b { color: var(--flag); font-weight: 600; }
+
+  section.closing { margin-top: 8px; }
+  section.closing h2 {
+    font-family: var(--mincho);
+    font-weight: 600;
+    font-size: 24px;
+    margin: 0 0 6px;
+  }
+  section.closing .sub {
+    color: var(--ink-3);
+    font-size: 13.5px;
+    margin: 0 0 22px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--line);
+  }
+  section.closing ul { padding-left: 20px; max-width: 66ch; }
+
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+
+<div class="shell">
+
+  <header class="masthead">
+    <p class="eyebrow">source-docs / 出力サンプル</p>
+    <h1>生成される資料の形</h1>
+    <p class="lede">DB 定義書・ER 図・API 仕様書・画面遷移図・外部連携が実際にどう出力されるか。書式の判断が見えるように、1 資料につき代表的な部分をそのまま載せる。</p>
+    <div class="premise">
+      <p><b>題材</b> — 架空のオンライン書店「Kotoba Books」。Next.js + Node API + PostgreSQL。実在のプロジェクトではない。</p>
+      <p><b>見るべき点</b> — 章の並び、表の列、実装ファイルの示し方、そして<b>判定できなかった情報の書き方</b>。最後のものがこのスキルの肝。</p>
+    </div>
+  </header>
+
+  <!-- ============ 1. DB 定義書 ============ -->
+  <div class="sheet">
+    <div class="sheet-head">
+      <span class="fname">docs/system/database.md</span>
+      <span class="kind">資料 1 / DB 定義書</span>
+    </div>
+    <div class="sheet-chapters">
+      <b>章構成</b>
+      1. 概要 → 2. スキーマ一覧 → 3. テーブル一覧 → 4. テーブル定義 → 5. Enum 定義 → 6. ER 図 → 7. ビュー → 8. 未確認一覧
+    </div>
+    <div class="sheet-body">
+
+      <h2>2. スキーマ一覧</h2>
+      <p class="desc">スキーマが複数ある場合に置く。<strong>誰が管理しているか</strong>を必ず書く — 外部サービスが作るスキーマは、こちらのマイグレーションでは変更できない。</p>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>スキーマ</th><th>用途</th><th>テーブル数</th><th>管理主体 / 定義元</th></tr></thead>
+          <tbody>
+            <tr><td><code>public</code></td><td>業務データ。書籍・注文・カート</td><td class="num">12</td><td>このリポジトリ。<code>db/migrations/*.sql</code></td></tr>
+            <tr><td><code>auth</code></td><td>認証。ユーザーとセッション</td><td class="num">4</td><td><strong>外部管理</strong>。認証基盤が作成。マイグレーション対象外</td></tr>
+            <tr><td><code>analytics</code></td><td>集計用のマテリアライズドビュー</td><td class="num">3</td><td>このリポジトリ。<code>db/analytics/*.sql</code>（日次バッチが更新）</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="flagbox">
+        <b>スキーマ跨ぎの参照</b> — <code>public.orders.user_id</code> は <code>auth.users.id</code> を参照する。外部管理スキーマへの FK は<strong>片方向の依存</strong>になり、こちらから相手のテーブルを変更できない。6 章の ER 図でも跨ぎの線を分けて描く。
+      </div>
+
+      <h2 style="margin-top:38px;">3. テーブル一覧</h2>
+      <p class="desc">スキーマごとにグループ化する。ここで全体の規模を掴んでから 4 章の定義に入る。</p>
+
+      <h4 style="margin-top:20px;">public</h4>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>テーブル</th><th>用途</th><th>主な参照元</th></tr></thead>
+          <tbody>
+            <tr><td><code>books</code></td><td>書籍マスタ</td><td>order_items, cart_items</td></tr>
+            <tr><td><code>categories</code></td><td>書籍のカテゴリ。階層は持たない</td><td>books</td></tr>
+            <tr><td><code>orders</code></td><td>注文ヘッダ</td><td>order_items, payments</td></tr>
+            <tr><td><code>order_items</code></td><td>注文明細</td><td>—</td></tr>
+            <tr><td><code>carts</code> / <code>cart_items</code></td><td>確定前のカート</td><td>—</td></tr>
+            <tr><td><code>legacy_book_imports</code></td><td><span class="unk">未確認</span> — 参照するコードが 1 か所も無い</td><td>—</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h4>auth <span style="font-weight:400;color:var(--ink-3);font-size:12px;">（外部管理・定義は読み取りのみ）</span></h4>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>テーブル</th><th>用途</th><th>主な参照元</th></tr></thead>
+          <tbody>
+            <tr><td><code>users</code></td><td>認証ユーザー。業務上のプロフィールは <code>public.user_profiles</code> が持つ</td><td>public.orders, public.carts</td></tr>
+            <tr><td><code>sessions</code></td><td>セッション</td><td>—</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h2 style="margin-top:38px;">4. テーブル定義</h2>
+      <p class="desc">テーブルごとに、カラム表・補足・実装ファイルの 3 点セットで書く。1 テーブル 1 見出し。<strong>スキーマが複数あるプロジェクトでは、見出しもカラム表の FK も常にスキーマ修飾で書く。</strong></p>
+
+      <h3><code>public.orders</code> — 注文</h3>
+      <p>確定した注文のヘッダ。明細は <code>order_items</code> が持つ。カート状態の注文はこのテーブルに入らない（<code>carts</code> が別に存在する）。</p>
+
+      <div class="scroll">
+        <table>
+          <thead>
+            <tr><th>カラム</th><th>型</th><th>NULL</th><th>Default</th><th>制約</th><th>説明</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>id</code></td><td>uuid</td><td>NO</td><td><code>gen_random_uuid()</code></td><td><span class="pk">PK</span></td><td>—</td></tr>
+            <tr><td><code>user_id</code></td><td>uuid</td><td>NO</td><td>—</td><td><span class="fk">FK → auth.users.id</span></td><td>注文者。<strong>外部管理スキーマへの参照</strong>。削除は <code>RESTRICT</code></td></tr>
+            <tr><td><code>status</code></td><td>order_status</td><td>NO</td><td><code>'pending'</code></td><td>—</td><td>4 章の Enum 参照</td></tr>
+            <tr><td><code>total_amount</code></td><td>integer</td><td>NO</td><td>—</td><td>CHECK ≥ 0</td><td>税込・送料込の合計。<b>単位は円</b></td></tr>
+            <tr><td><code>shipping_fee</code></td><td>integer</td><td>NO</td><td><code>0</code></td><td>—</td><td>5,000 円以上で 0 になる（<code>order-service.ts</code>）</td></tr>
+            <tr><td><code>shipped_at</code></td><td>timestamptz</td><td>YES</td><td>—</td><td>—</td><td>発送時に記録</td></tr>
+            <tr><td><code>coupon_code</code></td><td>varchar(32)</td><td>YES</td><td>—</td><td>—</td><td><span class="unk">未確認</span> — 参照する実装が見つからない</td></tr>
+            <tr><td><code>created_at</code></td><td>timestamptz</td><td>NO</td><td><code>now()</code></td><td>—</td><td>—</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="meta">
+        <dl>
+          <dt>Index</dt>
+          <dd><code>idx_orders_user_created</code> (user_id, created_at DESC) — マイページの注文履歴が使う</dd>
+          <dt>参照元</dt>
+          <dd><code>public.order_items.order_id</code>, <code>public.payments.order_id</code></dd>
+          <dt>スキーマ</dt>
+          <dd><code>public</code>（このリポジトリのマイグレーションが管理）</dd>
+          <dt>実装ファイル</dt>
+          <dd><code>db/migrations/0003_create_orders.sql</code> / <code>src/models/order.ts</code> / <code>src/services/order-service.ts</code></dd>
+        </dl>
+      </div>
+
+      <h2 style="margin-top:38px;">5. Enum 定義</h2>
+      <p class="desc">Enum もスキーマに属する。定義されたスキーマを併記する。</p>
+
+      <h3><code>public.order_status</code></h3>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>値</th><th>意味</th><th>遷移させる処理</th></tr></thead>
+          <tbody>
+            <tr><td><code>pending</code></td><td>注文確定・入金待ち</td><td>初期値</td></tr>
+            <tr><td><code>paid</code></td><td>入金済み</td><td><code>payment-webhook.ts:58</code></td></tr>
+            <tr><td><code>shipped</code></td><td>発送済み</td><td><code>admin/ship-order.ts:24</code></td></tr>
+            <tr><td><code>cancelled</code></td><td>キャンセル済み</td><td><code>order-service.ts:112</code></td></tr>
+            <tr><td><code>refunded</code></td><td><span class="unk">未確認</span> — DB の型定義には存在するが、この値をセットする実装が見つからない</td><td>—</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h2 style="margin-top:38px;">7. ビュー・マテリアライズドビュー</h2>
+      <p class="desc">ER 図には入れず、この章で「どのテーブルから作られるか」を示す。実体の依存関係が図から読めなくなるのを防ぐ。</p>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>名前</th><th>種別</th><th>元テーブル</th><th>更新</th><th>用途 / 実装ファイル</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><code>analytics.daily_sales</code></td>
+              <td>MATERIALIZED</td>
+              <td><code>public.orders</code><br><code>public.order_items</code></td>
+              <td>日次バッチ 03:00</td>
+              <td>日別の売上集計。管理画面のダッシュボードが参照<br><code>db/analytics/daily_sales.sql</code></td>
+            </tr>
+            <tr>
+              <td><code>analytics.book_ranking</code></td>
+              <td>MATERIALIZED</td>
+              <td><code>public.order_items</code><br><code>public.books</code></td>
+              <td>日次バッチ 03:10</td>
+              <td>売れ筋ランキング。<strong>トップページが直接参照する</strong>ため、更新失敗が利用者に見える<br><code>db/analytics/book_ranking.sql</code></td>
+            </tr>
+            <tr>
+              <td><code>analytics.stale_carts</code></td>
+              <td>MATERIALIZED</td>
+              <td><span class="unk">未確認</span></td>
+              <td><span class="unk">未確認</span></td>
+              <td>DB 上には存在するが、定義元 SQL がリポジトリに無い。8 章参照</td>
+            </tr>
+            <tr>
+              <td><code>public.active_books</code></td>
+              <td>VIEW</td>
+              <td><code>public.books</code></td>
+              <td>—</td>
+              <td>販売中（<code>status = 'on_sale'</code> かつ <code>stock &gt; 0</code>）の書籍のみ<br><code>db/migrations/0007_active_books.sql</code></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="rule-note" style="margin-top:16px;">
+        <b>この章の書き方</b>
+        <ul>
+          <li><strong>更新のタイミングを必ず書く。</strong> マテビューは「いつのデータか」が仕様。ここが抜けると、古い数字を見て障害と誤認する</li>
+          <li><strong>利用者に見える経路があるかを書く。</strong> 管理画面だけが見るのか、公開画面が直接参照するのかで、更新失敗の重大さが変わる</li>
+          <li>ビューを参照している API・画面は、それぞれの資料の「関連テーブル」欄にビュー名で書く。テーブルに読み替えない</li>
+        </ul>
+      </div>
+
+      <h2 style="margin-top:38px;">8. 未確認一覧</h2>
+      <p class="desc">資料の末尾に必ず置く。何が分からなかったかを 1 か所で見渡せるようにする。</p>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>対象</th><th>分からなかったこと</th><th>調べた範囲</th></tr></thead>
+          <tbody>
+            <tr><td><code>public.orders.coupon_code</code></td><td>どこで書き込まれ、どこで参照されるか</td><td>API・バッチ・管理画面を全文検索したが代入箇所なし</td></tr>
+            <tr><td><code>public.order_status.refunded</code></td><td>この状態へ遷移する経路</td><td>同上。返金は外部の決済管理画面で行われている可能性</td></tr>
+            <tr><td><code>public.legacy_book_imports</code></td><td>テーブルの用途そのもの</td><td>参照するコードが 1 か所も無い。移行時の残骸と思われるが確証なし</td></tr>
+            <tr><td><code>analytics</code> スキーマ全体</td><td>マテリアライズドビューの定義元 SQL の所在</td><td><code>db/analytics/</code> に 2 本しか無く、DB 上の 3 本目と対応が取れない。手動で作られた可能性</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="rule-note">
+        <b>この資料の書式ルール</b>
+        <ul>
+          <li>カラム表は 6 列固定。<strong>説明欄に単位と業務ルールを書く</strong> — 「integer」だけでは円かポイントか分からない</li>
+          <li>マイグレーションと ORM モデルの両方がある場合、<strong>マイグレーションを正とする</strong>。両方を実装ファイルに挙げる</li>
+          <li>用途はコードを読んで書く。命名から推測しない。読めなければ用途ごと未確認一覧へ送る</li>
+          <li>Enum は値だけでなく<strong>「その値をセットする処理」</strong>を併記する。テスト仕様書を書くとき、ここが最も効く</li>
+          <li><strong>スキーマが複数あるなら 2 章を置き、テーブル名は常にスキーマ修飾で書く。</strong> スキーマが <code>public</code> だけのプロジェクトでは 2 章を省き、修飾も付けない — 単一スキーマで <code>public.</code> を全行に付けるのはノイズにしかならない</li>
+          <li>スキーマごとに<strong>管理主体</strong>を記録する。外部サービスが作るスキーマ、別リポジトリのマイグレーションが作るスキーマ、手動で作られたスキーマは、変更できる範囲が違う</li>
+          <li>スキーマ跨ぎの FK は<strong>制約欄に必ずスキーマを含めて書く</strong>。単に <code>FK → users.id</code> と書くと、同名テーブルが両スキーマにあるとき読み手が誤る</li>
+        </ul>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ============ 2. ER 図 ============ -->
+  <div class="sheet">
+    <div class="sheet-head">
+      <span class="fname">docs/system/database.md</span>
+      <span class="kind">資料 2 / ER 図（6 章）</span>
+    </div>
+    <div class="sheet-chapters">
+      <b>出力</b>
+      Mermaid <code>erDiagram</code>。スキーマ跨ぎは接頭辞で示す。テーブル数が多い場合はドメイン単位に分割し、全体図はリレーションのみに絞る
+    </div>
+    <div class="sheet-body">
+
+      <h2>6. ER 図</h2>
+      <p class="desc">Markdown にはこう書かれる（抜粋）。<code>erDiagram</code> はエンティティ名にドットを使えないため、<strong>スキーマは <code>auth_</code> のような接頭辞で表す</strong>。</p>
+
+      <pre class="src"><code>```mermaid
+erDiagram
+    auth_users ||--o{ orders : "注文する"
+    orders ||--|{ order_items : "明細を持つ"
+    books ||--o{ order_items : "注文される"
+    ...
+```</code></pre>
+
+      <p class="srclabel">レンダリング結果</p>
+      <pre class="mermaid">
+erDiagram
+    auth_users ||--o{ orders : "注文する"
+    auth_users ||--o| carts : "保持する"
+    orders ||--|{ order_items : "明細を持つ"
+    orders ||--o| payments : "決済される"
+    books ||--o{ order_items : "注文される"
+    books }o--|| categories : "属する"
+    carts ||--o{ cart_items : "明細を持つ"
+    books ||--o{ cart_items : "入れられる"
+
+    auth_users {
+        uuid id PK
+        varchar email UK
+        timestamptz created_at
+    }
+    orders {
+        uuid id PK
+        uuid user_id FK
+        order_status status
+        integer total_amount
+        integer shipping_fee
+        timestamptz shipped_at
+    }
+    order_items {
+        uuid id PK
+        uuid order_id FK
+        uuid book_id FK
+        integer quantity
+        integer unit_price
+    }
+    books {
+        uuid id PK
+        uuid category_id FK
+        varchar isbn UK
+        varchar title
+        integer price
+        integer stock
+    }
+      </pre>
+      <p style="font-size:13px;color:var(--ink-3);margin-top:-2px;">接頭辞のないエンティティは <code>public</code>。<code>auth_users</code> は外部管理スキーマ <code>auth</code> のテーブル。</p>
+
+      <div class="rule-note">
+        <b>分割の方針</b>
+        <ul>
+          <li>テーブル 15 本以下 → 全テーブルを 1 枚に、カラム付きで描く</li>
+          <li>16 本以上 → ドメイン単位（注文まわり / 商品まわり / 認証まわり）に分割し、それぞれカラム付きで描く。加えて<strong>全体図をリレーションのみで 1 枚</strong>置く</li>
+          <li>カラムは PK / FK / UK と、業務上の主要な列に絞る。全カラムを図に入れない — 全量は 4 章のテーブル定義が持っている</li>
+          <li>中間テーブルも省略せず描く。省略すると多対多の実装が見えなくなる</li>
+        </ul>
+      </div>
+
+      <div class="rule-note">
+        <b>スキーマが複数あるとき</b>
+        <ul>
+          <li><strong>スキーマ単位で図を分ける</strong>のが基本。その上で、跨ぎの参照だけを集めた「スキーマ間参照図」を 1 枚置く</li>
+          <li>1 枚に混ぜる場合は<strong>接頭辞を付ける</strong>。<code>public</code> のテーブルには付けない（大半が <code>public</code> のため、全部に付けると読みにくい）</li>
+          <li><strong>外部管理スキーマのテーブルはカラムを主要な列だけに絞る。</strong> こちらで変更できないうえ、外部サービスの都合で増減するため、全量を書くと資料がすぐ古くなる</li>
+          <li>ビュー・マテリアライズドビューは ER 図に入れない。実体の依存関係が読めなくなる。別章で「どのテーブルから作られるか」を表で示す</li>
+        </ul>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ============ 3. API 仕様書 ============ -->
+  <div class="sheet">
+    <div class="sheet-head">
+      <span class="fname">docs/system/api.md</span>
+      <span class="kind">資料 3 / API 仕様書（IF 定義）</span>
+    </div>
+    <div class="sheet-chapters">
+      <b>章構成</b>
+      1. 概要 → 2. 共通仕様（認証・エラー形式・ページング）→ 3. エンドポイント一覧 → 4. エンドポイント詳細 → 5. 未確認一覧
+    </div>
+    <div class="sheet-body">
+
+      <h2>3. エンドポイント一覧</h2>
+      <p class="desc">まず全体を 1 枚で見渡せるようにする。詳細は 4 章。</p>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>Method</th><th>Path</th><th>概要</th><th>認証</th><th>主な関連テーブル</th></tr></thead>
+          <tbody>
+            <tr><td><code>GET</code></td><td><code>/api/books</code></td><td>書籍を検索する</td><td>不要</td><td>books, categories</td></tr>
+            <tr><td><code>GET</code></td><td><code>/api/books/:id</code></td><td>書籍 1 件を取得する</td><td>不要</td><td>books</td></tr>
+            <tr><td><code>POST</code></td><td><code>/api/cart/items</code></td><td>カートに追加する</td><td>必要</td><td>carts, cart_items</td></tr>
+            <tr><td><code>POST</code></td><td><code>/api/orders</code></td><td>注文を確定する</td><td>必要</td><td>orders, order_items, books</td></tr>
+            <tr><td><code>GET</code></td><td><code>/api/orders</code></td><td>自分の注文履歴を取得する</td><td>必要</td><td>orders, order_items</td></tr>
+            <tr><td><code>POST</code></td><td><code>/api/webhooks/payment</code></td><td>決済結果を受け取る</td><td>署名検証</td><td>orders, payments</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h2 style="margin-top:38px;">4. エンドポイント詳細</h2>
+
+      <h3><code>POST /api/orders</code> — 注文を確定する</h3>
+      <p>カートの内容から注文を作成し、在庫を引き当てる。カートは注文確定時に空になる。<strong>1 トランザクションで処理され、在庫不足があれば注文ごと失敗する</strong>（部分的な注文は作られない）。</p>
+
+      <div class="meta">
+        <dl>
+          <dt>認証</dt>
+          <dd>必要。<code>requireAuth</code> ミドルウェア（Bearer トークン）</dd>
+          <dt>認可</dt>
+          <dd>自分のカートのみ。<code>user_id</code> はトークンから取り、リクエストボディの値は使わない</dd>
+          <dt>実装</dt>
+          <dd><code>src/routes/orders.ts:42</code> → <code>src/services/order-service.ts:88</code></dd>
+        </dl>
+      </div>
+
+      <h4>Request Body</h4>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>フィールド</th><th>型</th><th>必須</th><th>検証</th><th>説明</th></tr></thead>
+          <tbody>
+            <tr><td><code>shipping_address_id</code></td><td>string (uuid)</td><td>○</td><td>uuid 形式 / 本人の住所であること</td><td>配送先</td></tr>
+            <tr><td><code>payment_method</code></td><td>enum</td><td>○</td><td><code>card</code> | <code>convenience</code> のみ</td><td>決済手段</td></tr>
+            <tr><td><code>note</code></td><td>string</td><td>—</td><td>最大 500 文字</td><td>配送メモ</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="font-size:13px;color:var(--ink-3);margin-top:-8px;">検証の出所: <code>src/schemas/order.ts</code>（zod）</p>
+
+      <h4>Response 201</h4>
+      <pre class="src json"><code>{
+  "id": "3f9c...",
+  "status": "pending",
+  "total_amount": 4820,
+  "shipping_fee": 0,
+  "items": [
+    { "book_id": "a1b2...", "title": "...", "quantity": 2, "unit_price": 2200 }
+  ]
+}</code></pre>
+
+      <h4>エラー</h4>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>Status</th><th>errorType</th><th>発生条件</th></tr></thead>
+          <tbody>
+            <tr><td class="num">400</td><td><code>VALIDATION_ERROR</code></td><td>上記の検証に違反</td></tr>
+            <tr><td class="num">401</td><td><code>UNAUTHORIZED</code></td><td>トークンが無い・失効</td></tr>
+            <tr><td class="num">409</td><td><code>OUT_OF_STOCK</code></td><td>いずれかの書籍の在庫が数量に満たない。<strong>不足した書籍の一覧をレスポンスに含む</strong></td></tr>
+            <tr><td class="num">409</td><td><code>CART_EMPTY</code></td><td>カートに 1 件も入っていない</td></tr>
+            <tr><td class="num">500</td><td><code>INTERNAL_ERROR</code></td><td>—</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h4>関連テーブル</h4>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>テーブル</th><th>操作</th><th>備考</th></tr></thead>
+          <tbody>
+            <tr><td><code>orders</code></td><td>INSERT</td><td>1 件</td></tr>
+            <tr><td><code>order_items</code></td><td>INSERT</td><td>カート明細と同数</td></tr>
+            <tr><td><code>books</code></td><td>UPDATE</td><td><code>stock</code> を減算。行ロックを取る</td></tr>
+            <tr><td><code>cart_items</code></td><td>DELETE</td><td>確定後に空にする</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="flagbox">
+        <b>未確認</b> — <code>payment_method</code> が <code>convenience</code> のとき、決済期限をどこで管理しているかが読めなかった。<code>orders</code> にも <code>payments</code> にも期限のカラムが無く、外部の決済サービス側で持っている可能性がある。5 章の未確認一覧に記載。
+      </div>
+
+      <div class="rule-note">
+        <b>この資料の書式ルール</b>
+        <ul>
+          <li>一覧表と詳細を分ける。一覧は 5 列で全エンドポイントを俯瞰、詳細はエンドポイントごとに 1 見出し</li>
+          <li>Validation は<strong>スキーマ定義から取る</strong>。無ければハンドラ内の分岐から拾い、出所を明記する</li>
+          <li>Status Code は<strong>実装に現れるものだけ</strong>。フレームワーク既定の暗黙値を書くときは「既定」と明記する</li>
+          <li>関連テーブルは CRUD で示す。ここが画面-API-DB 関連表の接続点になる</li>
+          <li>レスポンス例は実際の型定義から起こす。値は例だが<strong>フィールド構成は実装どおり</strong></li>
+        </ul>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ============ 4. 画面 ============ -->
+  <div class="sheet">
+    <div class="sheet-head">
+      <span class="fname">docs/system/screens.md</span>
+      <span class="kind">資料 4 / 画面一覧・遷移図・関連表</span>
+    </div>
+    <div class="sheet-chapters">
+      <b>章構成</b>
+      1. 概要 → 2. 画面一覧 → 3. 画面遷移図 → 4. 画面詳細 → 5. 画面-API-DB 関連 → 6. 未確認一覧
+    </div>
+    <div class="sheet-body">
+
+      <h2>2. 画面一覧</h2>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>画面名</th><th>Route</th><th>概要</th><th>認証</th><th>実装ファイル</th></tr></thead>
+          <tbody>
+            <tr><td>書籍一覧</td><td><code>/books</code></td><td>検索・絞り込みして書籍を探す</td><td>不要</td><td><code>app/books/page.tsx</code></td></tr>
+            <tr><td>書籍詳細</td><td><code>/books/[id]</code></td><td>1 冊の詳細とカート追加</td><td>不要</td><td><code>app/books/[id]/page.tsx</code></td></tr>
+            <tr><td>カート</td><td><code>/cart</code></td><td>数量変更・削除・注文へ進む</td><td>必要</td><td><code>app/cart/page.tsx</code></td></tr>
+            <tr><td>注文確認</td><td><code>/checkout</code></td><td>配送先と支払方法を選び確定する</td><td>必要</td><td><code>app/checkout/page.tsx</code></td></tr>
+            <tr><td>注文完了</td><td><code>/orders/[id]/done</code></td><td>注文番号を表示する</td><td>必要</td><td><code>app/orders/[id]/done/page.tsx</code></td></tr>
+            <tr><td>注文履歴</td><td><code>/mypage/orders</code></td><td>過去の注文を一覧する</td><td>必要</td><td><code>app/mypage/orders/page.tsx</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h2 style="margin-top:38px;">3. 画面遷移図</h2>
+      <p class="desc">Markdown にはこう書かれる（抜粋）。</p>
+      <pre class="src"><code>```mermaid
+flowchart TD
+    BOOKS["書籍一覧<br/>/books"] --> DETAIL["書籍詳細<br/>/books/[id]"]
+    DETAIL -->|"カートに入れる<br/>（未ログイン時はログインへ）"| CART["カート<br/>/cart"]
+    ...
+```</code></pre>
+
+      <p class="srclabel">レンダリング結果</p>
+      <pre class="mermaid">
+flowchart TD
+    BOOKS["書籍一覧<br/>/books"] --> DETAIL["書籍詳細<br/>/books/[id]"]
+    DETAIL -->|"カートに入れる"| CART["カート<br/>/cart"]
+    DETAIL -.->|"未ログイン"| LOGIN["ログイン<br/>/login"]
+    LOGIN -->|"認証後は元の画面へ戻る"| DETAIL
+    CART -->|"注文手続きへ"| CHECKOUT["注文確認<br/>/checkout"]
+    CHECKOUT -->|"注文を確定する"| DONE["注文完了<br/>/orders/[id]/done"]
+    CHECKOUT -.->|"在庫不足<br/>OUT_OF_STOCK"| CART
+    DONE --> HISTORY["注文履歴<br/>/mypage/orders"]
+    HISTORY --> ORDERDETAIL["注文詳細<br/>/mypage/orders/[id]"]
+      </pre>
+
+      <div class="rule-note">
+        <b>図の書き方</b>
+        <ul>
+          <li><strong>画面を主語にする。</strong> API 名をノードにしない — 非エンジニアが読むため</li>
+          <li>ノードには<strong>画面名と Route を両方</strong>入れる。名前だけだと実装に辿り着けない</li>
+          <li>矢印のラベルは<strong>ユーザーの操作</strong>。「ボタン押下」ではなく画面上の実際の文言に寄せる</li>
+          <li><strong>エラー・条件付きの遷移は破線</strong>にする。正常系の流れが一目で追える</li>
+          <li>1 枚に詰め込まない。フローが 12 ノードを超えたら「購入フロー」「会員登録フロー」のように分ける</li>
+        </ul>
+      </div>
+
+      <h2 style="margin-top:38px;">5. 画面-API-DB 関連</h2>
+      <p class="desc">画面の操作から、呼ばれる API と触られるテーブルまでを 1 行で辿れるようにする。将来の機能詳細設計はこの表を入口にする。</p>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>画面</th><th>操作 / タイミング</th><th>API</th><th>テーブル（CRUD）</th></tr></thead>
+          <tbody>
+            <tr><td>書籍一覧</td><td>表示時・検索実行時</td><td><code>GET /api/books</code></td><td>books (R), categories (R)</td></tr>
+            <tr><td>書籍詳細</td><td>表示時</td><td><code>GET /api/books/:id</code></td><td>books (R)</td></tr>
+            <tr><td>書籍詳細</td><td>「カートに入れる」</td><td><code>POST /api/cart/items</code></td><td>carts (C/R), cart_items (C/U)</td></tr>
+            <tr><td>カート</td><td>数量変更</td><td><code>PATCH /api/cart/items/:id</code></td><td>cart_items (U)</td></tr>
+            <tr><td>注文確認</td><td>「注文を確定する」</td><td><code>POST /api/orders</code></td><td>orders (C), order_items (C), books (U), cart_items (D)</td></tr>
+            <tr><td>注文履歴</td><td>表示時</td><td><code>GET /api/orders</code></td><td>orders (R), order_items (R)</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="flagbox">
+        <b>未確認</b> — 注文完了画面は表示時に API を呼んでいないように見えるが、注文番号をどこから取得しているかが読めなかった。直前の画面から状態を引き継いでいる可能性が高いが、リロード時の挙動を含めて確証が得られていない。
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ============ 5. 外部連携 ============ -->
+  <div class="sheet">
+    <div class="sheet-head">
+      <span class="fname">docs/system/integrations.md</span>
+      <span class="kind">資料 5 / 外部連携</span>
+    </div>
+    <div class="sheet-chapters">
+      <b>章構成</b>
+      1. 連携先一覧 → 2. 送信（こちらから呼ぶ）→ 3. 受信（外部から来る）→ 4. 認証情報の所在 → 5. 障害時の挙動 → 6. 未確認一覧
+    </div>
+    <div class="sheet-body">
+
+      <h2>1. 連携先一覧</h2>
+      <p class="desc">方向を最初に示す。障害調査は「どちら向きの通信が落ちているか」から始まるため。</p>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>連携先</th><th>方向</th><th>用途</th><th>認証方式</th><th>実装ファイル</th></tr></thead>
+          <tbody>
+            <tr><td>決済サービス</td><td>送信 + 受信</td><td>決済の作成と結果の受け取り</td><td>API キー / Webhook 署名</td><td><code>src/gateways/payment.ts</code><br><code>src/routes/webhooks/payment.ts</code></td></tr>
+            <tr><td>メール配信</td><td>送信</td><td>注文確認・発送通知</td><td>API キー</td><td><code>src/gateways/mailer.ts</code></td></tr>
+            <tr><td>書誌データ API</td><td>送信</td><td>ISBN から書影とあらすじを取得</td><td>なし（公開 API）</td><td><code>src/batch/sync-book-meta.ts</code></td></tr>
+            <tr><td>オブジェクトストレージ</td><td>送信</td><td>書影の保存と配信</td><td>署名付き URL</td><td><code>src/gateways/storage.ts</code></td></tr>
+            <tr><td>在庫管理システム</td><td><span class="unk">未確認</span></td><td>接続設定が残っているが、呼び出す実装が見つからない</td><td>—</td><td><code>config/inventory.ts</code> のみ</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h2 style="margin-top:38px;">2. 送信 — こちらから呼ぶ</h2>
+
+      <h3>決済サービス / 決済の作成</h3>
+      <div class="meta">
+        <dl>
+          <dt>呼び出し</dt>
+          <dd><code>POST https://api.example-pay.test/v1/payments</code></dd>
+          <dt>タイミング</dt>
+          <dd>注文確定時（<code>POST /api/orders</code> の中、注文レコード作成の<strong>後</strong>）</dd>
+          <dt>タイムアウト</dt>
+          <dd>10 秒（<code>payment.ts:18</code>）</dd>
+          <dt>リトライ</dt>
+          <dd><strong>なし。</strong> 失敗すると注文は <code>pending</code> のまま残る</dd>
+          <dt>関連テーブル</dt>
+          <dd><code>public.payments</code> (C) — 成功時のみレコードを作る</dd>
+          <dt>実装</dt>
+          <dd><code>src/gateways/payment.ts:24</code> ← <code>src/services/order-service.ts:104</code></dd>
+        </dl>
+      </div>
+      <div class="flagbox">
+        <b>注意点</b> — 注文レコードは決済呼び出しの<strong>前</strong>に commit される。決済が失敗しても注文は残るため、<code>pending</code> のまま放置される注文が発生しうる。これを回収する仕組み（バッチ・監視）は<strong>見つからなかった</strong>。6 章の未確認一覧に記載。
+      </div>
+
+      <h3>書誌データ API / 書影とあらすじの取得</h3>
+      <div class="meta">
+        <dl>
+          <dt>呼び出し</dt>
+          <dd><code>GET https://books.example.test/v1/isbn/:isbn</code></dd>
+          <dt>タイミング</dt>
+          <dd>日次バッチ 02:00。<code>books.description</code> が空のレコードのみ対象</dd>
+          <dt>レート制限</dt>
+          <dd>1 秒 1 リクエストに自前で絞っている（<code>sync-book-meta.ts:41</code>）</dd>
+          <dt>失敗時</dt>
+          <dd>その 1 冊をスキップしてログに残し、バッチは続行する。翌日また対象になる</dd>
+          <dt>関連テーブル</dt>
+          <dd><code>public.books</code> (U) — <code>description</code>, <code>cover_url</code></dd>
+        </dl>
+      </div>
+
+      <h2 style="margin-top:38px;">3. 受信 — 外部から来る</h2>
+
+      <h3>決済サービス / 決済結果の Webhook</h3>
+      <div class="meta">
+        <dl>
+          <dt>受け口</dt>
+          <dd><code>POST /api/webhooks/payment</code></dd>
+          <dt>検証</dt>
+          <dd>HMAC-SHA256 署名（ヘッダー <code>X-Pay-Signature</code>）。不一致は 401 で拒否</dd>
+          <dt>冪等性</dt>
+          <dd>イベント ID を <code>public.webhook_events</code> に記録し、既に存在すれば 200 を返して<strong>処理しない</strong></dd>
+          <dt>実装</dt>
+          <dd><code>src/routes/webhooks/payment.ts:58</code></dd>
+        </dl>
+      </div>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>イベント</th><th>処理</th><th>更新するテーブル</th></tr></thead>
+          <tbody>
+            <tr><td><code>payment.succeeded</code></td><td>注文を <code>paid</code> にし、確認メールを送る</td><td>orders (U), payments (U)</td></tr>
+            <tr><td><code>payment.failed</code></td><td>注文を <code>cancelled</code> にし、在庫を戻す</td><td>orders (U), books (U)</td></tr>
+            <tr><td><code>payment.refunded</code></td><td><span class="unk">未確認</span> — ハンドラに分岐が無く、ログだけ出して 200 を返している</td><td>—</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h2 style="margin-top:38px;">4. 認証情報の所在</h2>
+      <p class="desc"><strong>値は書かない。</strong> どの環境変数名で、どこから読まれ、どこで設定されているかだけを示す。</p>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>連携先</th><th>環境変数名</th><th>読み出し箇所</th><th>設定場所</th></tr></thead>
+          <tbody>
+            <tr><td>決済サービス</td><td><code>PAYMENT_API_KEY</code><br><code>PAYMENT_WEBHOOK_SECRET</code></td><td><code>src/config/env.ts</code></td><td>ホスティングの環境変数（<code>.env.example</code> に名前のみ記載）</td></tr>
+            <tr><td>メール配信</td><td><code>MAIL_API_KEY</code></td><td>同上</td><td>同上</td></tr>
+            <tr><td>オブジェクトストレージ</td><td><code>STORAGE_ACCESS_KEY</code><br><code>STORAGE_SECRET</code></td><td>同上</td><td>同上</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h2 style="margin-top:38px;">5. 障害時の挙動</h2>
+      <p class="desc">連携先が落ちたときに何が起きるか。<strong>コードから読み取れる範囲で書き、読み取れないものは未確認にする。</strong></p>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>連携先</th><th>落ちたときの利用者への影響</th><th>リトライ</th><th>復旧の手段</th></tr></thead>
+          <tbody>
+            <tr><td>決済サービス</td><td><strong>注文が確定できない。</strong> 500 が返る</td><td>なし</td><td><span class="unk">未確認</span> — <code>pending</code> の注文を回収する仕組みが見当たらない</td></tr>
+            <tr><td>メール配信</td><td>影響なし。注文自体は成立する</td><td>3 回・指数バックオフ</td><td>3 回とも失敗するとログのみ。再送する仕組みは無い</td></tr>
+            <tr><td>書誌データ API</td><td>影響なし。書影とあらすじが空のまま表示される</td><td>翌日のバッチ</td><td>自動で復旧する</td></tr>
+            <tr><td>オブジェクトストレージ</td><td><strong>書影が表示されない。</strong> 画面は壊れず代替画像になる</td><td>なし</td><td>—</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="rule-note">
+        <b>この資料の書式ルール</b>
+        <ul>
+          <li><strong>方向で章を分ける（送信 / 受信）。</strong> 連携先ごとにまとめると、Webhook と API 呼び出しが混ざって障害の切り分けに使えなくなる</li>
+          <li><strong>タイミング・タイムアウト・リトライ・失敗時の挙動を必ず 4 点セットで書く。</strong> 「連携している」だけの記述は、障害時に何の役にも立たない</li>
+          <li><strong>認証情報は環境変数名と所在のみ。</strong> 値・トークン・エンドポイントの秘匿部分は書かない。生成後に機密検出を通す</li>
+          <li>Webhook は<strong>冪等性の担保方法</strong>を必ず書く。重複配信は必ず起きる</li>
+          <li>設定だけ残っていて呼び出しが無い連携先も<strong>一覧に載せて未確認にする</strong>。消してよいのか判断できる材料になる</li>
+        </ul>
+      </div>
+
+    </div>
+  </div>
+
+  <section class="closing">
+    <h2>5 資料に共通すること</h2>
+    <p class="sub">形式の違いではなく、全資料が守る原則。</p>
+    <ul>
+      <li><strong>すべての行に実装ファイルが辿れる。</strong> テーブル定義・エンドポイント詳細・画面一覧のいずれも、実装ファイルの欄を持つ。ファイル単位まで — クラス名や関数名までは追わない</li>
+      <li><strong>末尾に必ず未確認一覧がある。</strong> 分からなかったことを黙って落とさない。「調べた範囲」まで書くので、次に読む人が同じ調査を繰り返さずに済む</li>
+      <li><strong>推測を事実として書かない。</strong> 書く価値があると判断したときだけ、推測と明示して根拠を併記する</li>
+      <li><strong>単位と業務ルールを説明欄に書く。</strong> 型だけでは仕様が伝わらない。「integer」ではなく「税込・送料込の合計、単位は円」</li>
+      <li><strong>図はすべて Mermaid。</strong> テキストなので差分が見え、Notion もネイティブに描画する</li>
+      <li><strong>機密は書かない。</strong> 環境変数は名前と所在まで。値・トークン・接続文字列は載せず、生成後に機密検出スクリプトを通す</li>
+    </ul>
+  </section>
+
+</div>
