@@ -29,3 +29,13 @@ class TemplateTest(unittest.TestCase):
                 for lineno, line in enumerate(f, 1):
                     if re.match(r"^#{4,}\s", line):
                         self.fail(f"{name}.md:{lineno} 見出しが h4 以上")
+
+
+class ReferenceTest(unittest.TestCase):
+    def test_all_references_exist(self):
+        for name in REFERENCES:
+            path = os.path.join(SKILL, "references", f"{name}.md")
+            self.assertTrue(os.path.isfile(path), f"missing: {path}")
+
+    def test_stacks_dir_exists(self):
+        self.assertTrue(os.path.isdir(os.path.join(SKILL, "references", "stacks")))
