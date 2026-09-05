@@ -57,6 +57,16 @@ class ConvertTest(unittest.TestCase):
         _, body = md2html.convert("```mermaid\nflowchart TD\n```")
         self.assertIn('<pre class="mermaid">', body)
 
+    def test_mermaid_quotes_are_not_escaped(self):
+        """pre の中で引用符をエスケープしない。Mermaid のラベルが壊れる。"""
+        _, body = md2html.convert('```mermaid\nA --> B : "ラベル"\n```')
+        self.assertIn('"ラベル"', body)
+        self.assertNotIn("&quot;", body)
+
+    def test_code_block_still_escapes_angle_brackets(self):
+        _, body = md2html.convert("```ts\nconst a: Array<string> = [];\n```")
+        self.assertIn("Array&lt;string&gt;", body)
+
     def test_table_scrolls(self):
         _, body = md2html.convert("| a |\n| --- |\n| 1 |")
         self.assertIn('class="scroll"', body)

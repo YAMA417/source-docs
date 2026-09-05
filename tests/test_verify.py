@@ -33,6 +33,20 @@ class ExtractTablesTest(unittest.TestCase):
         doc = "### `books` — 書籍マスタ\n"
         self.assertIn("books", verify.extract_tables(doc))
 
+    def test_body_cell_containing_table_word_is_not_a_header(self):
+        """本文セルに「テーブル」の語があってもヘッダーと誤認しない。
+
+        未確認一覧の「`damage_effect`（3 テーブル）」のような行で、
+        以降の全行をテーブル名として拾ってしまう誤検知を防ぐ。
+        """
+        doc = """
+| 対象 | 分からなかったこと |
+| --- | --- |
+| `damage_effect`（3 テーブル） | JSON の構造 |
+| Index の不在 | 意図的かどうか |
+"""
+        self.assertEqual(verify.extract_tables(doc), [])
+
     def test_ignores_non_table_heading(self):
         doc = "### 3. テーブル一覧\n"
         self.assertEqual(verify.extract_tables(doc), [])

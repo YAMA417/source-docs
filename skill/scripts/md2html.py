@@ -179,11 +179,14 @@ def render_blocks(blocks):
 
         elif kind == "code":
             lang, body = block[1], block[2]
+            # pre の中では引用符をエスケープしない。&quot; になると
+            # Mermaid がラベルを読めなくなる。< > & だけ潰せば十分
+            escaped = html.escape(body, quote=False)
             if lang == "mermaid":
-                out.append(f'<pre class="mermaid">{html.escape(body)}</pre>')
+                out.append(f'<pre class="mermaid">{escaped}</pre>')
             else:
                 cls = f' class="lang-{lang}"' if lang else ""
-                out.append(f"<pre><code{cls}>{html.escape(body)}</code></pre>")
+                out.append(f"<pre><code{cls}>{escaped}</code></pre>")
 
         elif kind == "table":
             rows = block[1]

@@ -107,21 +107,28 @@ def extract_error_types(doc):
     return sorted(set(RE_ERROR_TYPE.findall(doc)))
 
 
+def _is_divider(cells):
+    """Markdown の表の区切り行（| --- | --- |）かどうか。"""
+    return bool(cells) and set("".join(cells)) <= set("-: ")
+
+
 def extract_tables(doc):
     """テーブル名を 2 つの経路で拾う。
 
     1. ヘッダーに「テーブル」を含む列を持つ表の、その列
     2. `### public.orders — 注文` 形式の見出し
 
-    ヘッダーは部分一致で見る。「テーブル（CRUD）」のような列名があるため。
+    ヘッダーは部分一致で見る（「テーブル（CRUD）」のような列名があるため）が、
+    **直後に区切り行が続くことを条件にする。** そうしないと、本文セルに
+    「テーブル」の語が入っているだけの行をヘッダーと誤認し、
+    以降の全行をテーブル名として拾ってしまう。
     """
     tables = []
+    lines = [ln.strip() for ln in doc.splitlines()]
     in_table = False
     col = None
 
-    for line in doc.splitlines():
-        stripped = line.strip()
-
+    for i, stripped in enumerate(lines):
         m = RE_TABLE_HEADING.match(stripped)
         if m:
             tables.append(m.group(1))
@@ -135,15 +142,24 @@ def extract_tables(doc):
             continue
 
         cells = [c.strip() for c in stripped.strip("|").split("|")]
+
         if not in_table:
-            for i, cell in enumerate(cells):
+            # 次の行が区切り行のときだけヘッダーとみなす
+            nxt = lines[i + 1] if i + 1 < len(lines) else ""
+            if not nxt.startswith("|"):
+                continue
+            next_cells = [c.strip() for c in nxt.strip("|").split("|")]
+            if not _is_divider(next_cells):
+                continue
+            for j, cell in enumerate(cells):
                 if "テーブル" in cell:
                     in_table = True
-                    col = i
+                    col = j
                     break
             continue
-        if set("".join(cells)) <= set("-: "):
-            continue  # 区切り行
+
+        if _is_divider(cells):
+            continue
         if col is None or col >= len(cells):
             continue
         tables.extend(cell_identifiers(cells[col]))
