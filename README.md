@@ -22,19 +22,32 @@
 
 ## インストール
 
-Claude Code のプラグインとして入れる。
+### プラグインとして入れる（推奨）
 
 ```
 /plugin marketplace add YAMA417/source-docs
 /plugin install source-docs@source-docs
 ```
 
-プラグインとして入れた場合、**起動名は `/source-docs:source-docs`** になる
-（プラグインのスキルは `plugin-name:skill-name` の名前空間を持つ）。
+**起動名は `/source-docs:source-docs`。** プラグインのスキルは
+`plugin-name:skill-name` の名前空間を持つため、`:` が入る。
+「DB 定義書を作って」のような自然な依頼でも起動する。
 
-### 個人スキルとして置く
+更新はこの 2 つ。
 
-全プロジェクトで使える。起動名は `/source-docs`。
+```
+/plugin marketplace update source-docs
+claude plugin update source-docs@source-docs
+```
+
+**この方法を推す理由は、更新が届くこと。** 手動でコピーする方法だと、
+こちらが直しても入れた人には伝わらない。
+
+### 手動で置く（プラグインを使わない場合）
+
+`skills/source-docs/` の中身をそのままコピーする。起動名は `/source-docs`。
+
+**全プロジェクトで使う場合:**
 
 ```bash
 git clone https://github.com/YAMA417/source-docs.git
@@ -42,15 +55,16 @@ mkdir -p ~/.claude/skills/source-docs
 cp -r source-docs/skills/source-docs/. ~/.claude/skills/source-docs/
 ```
 
-### プロジェクトスキルとして置く
-
-そのリポジトリだけで有効。**リポジトリに commit すれば、clone した全員が使える。**
-チームで配るならこれが確実。起動名は `/source-docs`。
+**特定のリポジトリだけで使う場合:**
 
 ```bash
 mkdir -p <project>/.claude/skills/source-docs
 cp -r source-docs/skills/source-docs/. <project>/.claude/skills/source-docs/
 ```
+
+こちらは `.claude/skills/` ごと commit すれば、clone した人が
+**何もしなくても使える。** インストール手順を伝えずに済むのが利点。
+引き換えに、更新は各自がコピーし直すことになる。
 
 ## 使い方
 
@@ -73,8 +87,9 @@ cp -r source-docs/skills/source-docs/. <project>/.claude/skills/source-docs/
 /source-docs --repo ./frontend --repo ./backend
 ```
 
-プラグインとして入れた場合は `/source-docs:source-docs` と打つ。
-どの入れ方でも「DB 定義書を作って」のような自然な依頼で起動する。
+起動名は入れ方で変わる。プラグインなら `/source-docs:source-docs`、
+手動で置いたなら `/source-docs`。どちらでも「DB 定義書を作って」のような
+自然な依頼で起動する。
 
 ## ワークフロー
 
@@ -103,19 +118,24 @@ cp -r source-docs/skills/source-docs/. <project>/.claude/skills/source-docs/
 | `secrets.py` | 資料に機密が混ざっていないか検査 |
 | `md2html.py` | md を複数ページの HTML に変換 |
 
-すべて単体で実行できる。
+すべて単体で実行できる。スキルを使わず CI に組み込むこともできる。
+
+置き場所は入れ方で変わる。以下では `<skill-dir>` と書く。
+
+- プラグイン — `~/.claude/plugins/cache/source-docs/source-docs/<version>/skills/source-docs`
+- 手動 — `~/.claude/skills/source-docs` または `<project>/.claude/skills/source-docs`
 
 ```bash
-python3 ~/.claude/skills/source-docs/scripts/inventory.py --repo .
-python3 ~/.claude/skills/source-docs/scripts/verify.py --doc docs/system/database.md --repo .
-python3 ~/.claude/skills/source-docs/scripts/secrets.py --doc docs/system/database.md
-python3 ~/.claude/skills/source-docs/scripts/md2html.py --src docs/system --out docs/system/html
+python3 <skill-dir>/scripts/inventory.py --repo .
+python3 <skill-dir>/scripts/verify.py --doc docs/system/database.md --repo .
+python3 <skill-dir>/scripts/secrets.py --doc docs/system/database.md
+python3 <skill-dir>/scripts/md2html.py --src docs/system --out docs/system/html
 
 # 外部スクリプトを読み込みたくない場合（図は描画されずコードのまま残る）
-python3 ~/.claude/skills/source-docs/scripts/md2html.py --src docs/system --out docs/system/html --no-mermaid
+python3 <skill-dir>/scripts/md2html.py --src docs/system --out docs/system/html --no-mermaid
 
 # 機密検出の値を実際に見る（既定は伏せる）
-python3 ~/.claude/skills/source-docs/scripts/secrets.py --doc docs/system/api.md --reveal
+python3 <skill-dir>/scripts/secrets.py --doc docs/system/api.md --reveal
 ```
 
 ## 依存

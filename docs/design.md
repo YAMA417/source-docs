@@ -268,13 +268,45 @@ SKILL.md は常時コンテキストに載る。厚いと実作業の余地が�
 
 ## 配布
 
-1 リポジトリを marketplace 兼 plugin にしてある。利用者の導線は 3 通り。
+1 リポジトリを marketplace 兼 plugin にしてある。
 
-- **プラグイン** — `/plugin marketplace add <owner>/source-docs` → `/plugin install source-docs@source-docs`。更新は `/plugin marketplace update`
-- **個人スキル** — `skills/source-docs/` の中身を `~/.claude/skills/source-docs/` へ。全プロジェクトで使える
-- **プロジェクトスキル** — `<project>/.claude/skills/source-docs/` へ。リポジトリに commit すればチーム全員が使える
+**推す導線はプラグイン。** 理由は更新が届くこと。手動でコピーする方法だと、
+こちらが直しても入れた人には伝わらない。このスキルは公開直後に 18 件の修正が出ており、
+今後も直る前提で配る必要がある。
+
+```
+/plugin marketplace add <owner>/source-docs
+/plugin install source-docs@source-docs
+```
+
+起動名は `/source-docs:source-docs`。プラグインのスキルは
+`plugin-name:skill-name` の名前空間を持つため `:` が入る。
+**プラグインルート直下に `SKILL.md` を置いても名前空間は消えない**（実測で確認）。
+
+プラグインを使わない場合は `skills/source-docs/` の中身をそのまま置ける。
+`~/.claude/skills/source-docs/`（全プロジェクト）か
+`<project>/.claude/skills/source-docs/`（そのリポジトリだけ、commit すれば
+clone した全員が使える）。起動名は `/source-docs`。
 
 依存は Python 3 標準ライブラリのみ。追加インストールを利用者に要求しない。
+
+### プラグインとスキルの使い分け
+
+公式の指針は「個人のワークフローや試作は `.claude/` の standalone、
+共有・配布・バージョン管理されたリリースはプラグイン」。
+
+プラグインにしかできないこと。
+
+- 更新を届ける（`version` を上げれば利用者が受け取れる）
+- 有効・無効の切り替え
+- agents / hooks / MCP / LSP / 背景モニター / `bin/` の同梱
+- 名前空間による衝突回避
+
+standalone にしかできないこと。
+
+- 短い起動名
+- リポジトリに commit するだけで配れる（インストール手順が不要）
+- 編集が即反映される（プラグインは `version` を上げないとキャッシュが更新されない）
 
 ## このスキルの限界
 
