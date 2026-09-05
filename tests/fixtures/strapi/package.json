@@ -1,0 +1,7 @@
+{
+  "name": "fixture-strapi",
+  "dependencies": {
+    "@strapi/strapi": "5.0.0",
+    "pg": "8.13.0"
+  }
+}

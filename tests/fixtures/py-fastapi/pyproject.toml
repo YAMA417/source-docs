@@ -1,0 +1,7 @@
+[project]
+name = "fixture-fastapi"
+dependencies = [
+    "fastapi>=0.115",
+    "sqlalchemy>=2.0",
+    "psycopg[binary]>=3.2",
+]

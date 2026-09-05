@@ -1,0 +1,11 @@
+model Book {
+  id    String @id @default(uuid())
+  isbn  String @unique
+  title String
+}
+
+model Order {
+  id     String @id @default(uuid())
+  userId String
+  status String @default("pending")
+}

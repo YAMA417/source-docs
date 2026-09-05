@@ -44,7 +44,7 @@ HTTP_METHODS = ("GET", "POST", "PUT", "PATCH", "DELETE")
 
 # md 内の `POST /me/prize-orders` 形式。表・本文・コードブロックのどこにあっても拾う。
 RE_ENDPOINT = re.compile(
-    r"\b(" + "|".join(HTTP_METHODS) + r")\s+(/[A-Za-z0-9_\-/{}:\.\$\*]*)"
+    r"\b(" + "|".join(HTTP_METHODS) + r")`?\s*\|?\s*`?(/[A-Za-z0-9_\-/{}:\.\$\*]*)"
 )
 
 # インラインコードの中の大文字スネーク。errorType の候補。
@@ -52,6 +52,18 @@ RE_ERROR_TYPE = re.compile(r"`([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)`")
 
 # パスパラメータ。`:id` `{id}` `<id>` `$userId` の表記揺れを吸収する。
 RE_PATH_PARAM = re.compile(r"^(\{.*\}|:.+|<.+>|\$.+|\[.+\])$")
+
+# `### `public.orders` — 注文` / `### public.orders — 注文` の両方を拾う。
+# 説明のダッシュが続くものだけをテーブル定義の見出しとみなす。
+# 「### 3. テーブル一覧」のような章見出しは識別子の形に合わないので拾わない。
+RE_TABLE_HEADING = re.compile(
+    r"^#{2,4}\s+`?([a-z_][a-z0-9_]*(?:\.[a-z_][a-z0-9_]*)?)`?\s*[\u2014\u2013-]\s+\S"
+)
+
+
+def strip_schema(name):
+    """`public.orders` のようなスキーマ修飾を落とす。"""
+    return name.split(".")[-1] if "." in name else name
 
 
 def load_sources(repos):
@@ -95,33 +107,63 @@ def extract_error_types(doc):
     return sorted(set(RE_ERROR_TYPE.findall(doc)))
 
 
-def extract_tables(doc):
-    """CRUD 表の 2 列目からテーブル名を拾う。
+def _is_divider(cells):
+    """Markdown の表の区切り行（| --- | --- |）かどうか。"""
+    return bool(cells) and set("".join(cells)) <= set("-: ")
 
-    テンプレートで列順を `DB | テーブル | C | R | U | D | 備考` に固定してあるので、
-    ヘッダー行に「テーブル」を含む表だけを対象にする。
+
+def extract_tables(doc):
+    """テーブル名を 2 つの経路で拾う。
+
+    1. ヘッダーに「テーブル」を含む列を持つ表の、その列
+    2. `### public.orders — 注文` 形式の見出し
+
+    ヘッダーは部分一致で見る（「テーブル（CRUD）」のような列名があるため）が、
+    **直後に区切り行が続くことを条件にする。** そうしないと、本文セルに
+    「テーブル」の語が入っているだけの行をヘッダーと誤認し、
+    以降の全行をテーブル名として拾ってしまう。
     """
     tables = []
-    lines = doc.splitlines()
+    lines = [ln.strip() for ln in doc.splitlines()]
     in_table = False
     col = None
-    for line in lines:
-        stripped = line.strip()
+
+    for i, stripped in enumerate(lines):
+        m = RE_TABLE_HEADING.match(stripped)
+        if m:
+            tables.append(m.group(1))
+            in_table = False
+            col = None
+            continue
+
         if not stripped.startswith("|"):
             in_table = False
             col = None
             continue
+
         cells = [c.strip() for c in stripped.strip("|").split("|")]
+
         if not in_table:
-            if "テーブル" in cells:
-                in_table = True
-                col = cells.index("テーブル")
+            # 次の行が区切り行のときだけヘッダーとみなす
+            nxt = lines[i + 1] if i + 1 < len(lines) else ""
+            if not nxt.startswith("|"):
+                continue
+            next_cells = [c.strip() for c in nxt.strip("|").split("|")]
+            if not _is_divider(next_cells):
+                continue
+            for j, cell in enumerate(cells):
+                if "テーブル" in cell:
+                    in_table = True
+                    col = j
+                    break
             continue
-        if set("".join(cells)) <= set("-: "):
-            continue  # 区切り行
+
+        if _is_divider(cells):
+            continue
         if col is None or col >= len(cells):
             continue
         tables.extend(cell_identifiers(cells[col]))
+
     return sorted(set(tables))
 
 
@@ -139,6 +181,8 @@ def cell_identifiers(cell):
         names = re.split(r"[/、,]", text)
     out = []
     for name in names:
+        # `orders (C)` のような CRUD 注記を落とす
+        name = re.sub(r"[（(][^）)]*[）)]", "", name)
         name = name.strip().strip("`").strip()
         if name and name not in {"—", "-", ""}:
             out.append(name)
@@ -211,9 +255,11 @@ def main():
 
     for table in extract_tables(doc):
         checked["table"] += 1
+        # スキーマ修飾を落として照合する。ソースに `public.` は現れない
+        bare = strip_schema(table)
         # スキーマ定義は snake_case と PascalCase の両方がありうる
-        camel = "".join(p.capitalize() for p in re.split(r"[_\s]+", table) if p)
-        if table not in sources and camel not in sources:
+        camel = "".join(p.capitalize() for p in re.split(r"[_\s]+", bare) if p)
+        if bare not in sources and camel not in sources:
             findings.append({
                 "kind": "table",
                 "value": table,

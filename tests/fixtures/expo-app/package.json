@@ -1,0 +1,9 @@
+{
+  "name": "fixture-expo",
+  "dependencies": {
+    "expo": "52.0.0",
+    "expo-router": "4.0.0",
+    "react-native": "0.76.0",
+    "@supabase/supabase-js": "2.46.0"
+  }
+}

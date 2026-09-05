@@ -1,0 +1,8 @@
+{
+  "kind": "collectionType",
+  "collectionName": "books",
+  "attributes": {
+    "title": { "type": "string", "required": true },
+    "isbn": { "type": "string", "unique": true }
+  }
+}
