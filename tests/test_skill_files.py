@@ -39,3 +39,33 @@ class ReferenceTest(unittest.TestCase):
 
     def test_stacks_dir_exists(self):
         self.assertTrue(os.path.isdir(os.path.join(SKILL, "references", "stacks")))
+
+
+class SkillMdTest(unittest.TestCase):
+    def setUp(self):
+        with open(os.path.join(SKILL, "SKILL.md"), encoding="utf-8") as f:
+            self.text = f.read()
+
+    def test_has_frontmatter_with_name(self):
+        self.assertTrue(self.text.startswith("---\n"))
+        self.assertIn("name: source-docs", self.text)
+
+    def test_under_line_limit(self):
+        """常時コンテキストに載るため 250 行以内に収める。"""
+        self.assertLessEqual(len(self.text.splitlines()), 250)
+
+    def test_referenced_files_exist(self):
+        """SKILL.md が名前を挙げる references / templates / scripts が実在すること。"""
+        pattern = r"`(references/[\w./-]+|templates/[\w./-]+|scripts/[\w./-]+)`"
+        for match in re.findall(pattern, self.text):
+            if match.endswith("/"):
+                continue
+            path = os.path.join(SKILL, match)
+            self.assertTrue(
+                os.path.exists(path), f"SKILL.md が参照する {match} が存在しない"
+            )
+
+    def test_does_not_hardcode_personal_paths(self):
+        """個人環境のパスを使用例に書かない。"""
+        self.assertNotIn("ymnk417", self.text)
+        self.assertNotIn("poke-dex-battle", self.text)
