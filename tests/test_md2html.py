@@ -142,3 +142,115 @@ class OutputSafetyTest(unittest.TestCase):
                 f.write("既存の内容")
             overwritten = md2html.existing_targets(src, out)
             self.assertIn("a.html", [os.path.basename(p) for p in overwritten])
+
+
+class HrefAllowlistTest(unittest.TestCase):
+    """禁止一覧ではなく許可一覧で判定する。回避の余地を減らすため。"""
+
+    def test_leading_control_char_is_blocked(self):
+        out = md2html.render_inline("[x](\x01javascript:alert(1))")
+        self.assertNotIn("javascript", out.lower())
+
+    def test_tab_and_newline_inside_scheme_blocked(self):
+        out = md2html.render_inline("[x](java\tscript:alert(1))")
+        self.assertNotIn("script:", out.lower())
+
+    def test_uppercase_scheme_blocked(self):
+        out = md2html.render_inline("[x](JaVaScRiPt:alert(1))")
+        self.assertNotIn("alert", out.lower())
+
+    def test_unknown_scheme_blocked(self):
+        out = md2html.render_inline("[x](ftp://a.test/f)")
+        self.assertIn('href="#"', out)
+
+    def test_ampersand_not_double_encoded(self):
+        out = md2html.render_inline("[a](https://x.test/?a=1&b=2)")
+        self.assertIn("?a=1&amp;b=2", out)
+        self.assertNotIn("&amp;amp;", out)
+
+    def test_anchor_and_relative_allowed(self):
+        self.assertIn('href="#sec"', md2html.render_inline("[a](#sec)"))
+        self.assertIn('href="db.html"', md2html.render_inline("[a](db.md)"))
+        self.assertIn('href="mailto:a@b.test"', md2html.render_inline("[a](mailto:a@b.test)"))
+
+
+class NavEscapeTest(unittest.TestCase):
+    def test_page_name_is_escaped_in_nav(self):
+        nav = md2html._nav_html([('x" onmouseover="alert(1)', "題")], None)
+        self.assertNotIn('onmouseover="alert', nav)
+
+    def test_page_name_is_escaped_in_index(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as src, tempfile.TemporaryDirectory() as out:
+            bad = 'x" onmouseover="alert(1)'
+            with open(os.path.join(src, bad + ".md"), "w", encoding="utf-8") as f:
+                f.write("# 題\n")
+            md2html.write_site(src, out)
+            with open(os.path.join(out, "index.html"), encoding="utf-8") as f:
+                index = f.read()
+            self.assertNotIn('onmouseover="alert', index)
+
+
+class SymlinkSafetyTest(unittest.TestCase):
+    def test_symlinked_md_is_not_read(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as src, tempfile.TemporaryDirectory() as out:
+            secret = os.path.join(src, "secret.txt")
+            with open(secret, "w", encoding="utf-8") as f:
+                f.write("PRIVATE_MATERIAL")
+            with open(os.path.join(src, "real.md"), "w", encoding="utf-8") as f:
+                f.write("# 実物\n")
+            os.symlink(secret, os.path.join(src, "attack.md"))
+
+            md2html.write_site(src, out)
+            self.assertFalse(os.path.exists(os.path.join(out, "attack.html")))
+            self.assertTrue(os.path.exists(os.path.join(out, "real.html")))
+
+    def test_symlinked_out_dir_is_refused(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as src, tempfile.TemporaryDirectory() as real:
+            with open(os.path.join(src, "a.md"), "w", encoding="utf-8") as f:
+                f.write("# A\n")
+            link = os.path.join(src, "outlink")
+            os.symlink(real, link)
+            with self.assertRaises(SystemExit):
+                md2html.write_site(src, link)
+
+
+class FenceTest(unittest.TestCase):
+    def test_unterminated_fence_does_not_swallow_rest(self):
+        md = "```ts\nconst a = 1;\n\n## 続きの見出し\n\n本文\n"
+        blocks = md2html.parse_blocks(md)
+        kinds = [b[0] for b in blocks]
+        self.assertIn("heading", kinds)
+
+    def test_empty_row_is_not_a_divider(self):
+        md = "| a | b |\n| --- | --- |\n|  |  |\n"
+        blocks = md2html.parse_blocks(md)
+        self.assertEqual(blocks[0][0], "table")
+        self.assertEqual(len(blocks[0][1]), 2)
+
+
+class MermaidVersionTest(unittest.TestCase):
+    def test_uses_patched_version_with_integrity(self):
+        """既知の XSS を修正したバージョンを、SRI 付きで読み込む。"""
+        self.assertIn("mermaid@11.17.2", md2html.MERMAID_CDN)
+        self.assertTrue(md2html.MERMAID_SRI.startswith("sha384-"))
+        _, body = md2html.convert("# a\n")
+        page = md2html.PAGE.format(
+            title="t", nav="", body=body,
+            cdn=md2html.MERMAID_CDN, sri=md2html.MERMAID_SRI, mermaid_init=md2html.MERMAID_INIT,
+        )
+        self.assertIn("integrity=", page)
+        self.assertIn("crossorigin=", page)
+
+    def test_no_mermaid_mode_emits_no_script(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as src, tempfile.TemporaryDirectory() as out:
+            with open(os.path.join(src, "a.md"), "w", encoding="utf-8") as f:
+                f.write("# A\n\n```mermaid\nflowchart TD\n```\n")
+            md2html.write_site(src, out, mermaid=False)
+            with open(os.path.join(out, "a.html"), encoding="utf-8") as f:
+                page = f.read()
+            self.assertNotIn("<script", page)
+            self.assertIn("flowchart TD", page)

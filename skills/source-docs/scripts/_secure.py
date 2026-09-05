@@ -20,12 +20,18 @@ SECRET_FILENAMES = frozenset({
     "id_rsa", "id_dsa", "id_ecdsa", "id_ed25519",
     "master.key", "keystore.jks", "google-services.json",
     "GoogleService-Info.plist", "auth.json", "token.json",
+    ".envrc", ".git-credentials", ".pgpass", ".s3cfg", ".boto",
+    ".msmtprc", ".my.cnf", "id_rsa.pub", "known_hosts",
 })
 
 # 拡張子がこれなら開かない。鍵そのもの
 SECRET_SUFFIXES = (
     ".pem", ".key", ".p12", ".pfx", ".jks", ".keystore", ".ppk",
     ".asc", ".gpg", ".kdbx", ".crt", ".cer", ".der",
+    ".p8",          # Apple の署名鍵
+    ".tfvars",      # Terraform の変数ファイル。値が直に入る
+    ".tfvars.json",
+    ".pkcs12", ".jceks", ".mobileprovision",
 )
 
 # .env で始まるものは原則開かない。ただし下の例外は読む
@@ -46,7 +52,7 @@ SECRET_DIRS = frozenset({
 
 def is_secret_file(path):
     """ファイル名だけで、開いてはいけないかを判定する。"""
-    name = os.path.basename(path)
+    name = path.replace("\\", "/").rstrip("/").split("/")[-1]
     lower = name.lower()
 
     if lower in ENV_SAFE:
@@ -61,10 +67,15 @@ def is_secret_file(path):
 
 
 def is_secret_path(path):
-    """ファイル名に加えて、置かれているディレクトリでも判定する。"""
+    """ファイル名に加えて、置かれているディレクトリでも判定する。
+
+    区切り文字は `/` と `\\` の両方を見る。Linux 上で Windows 形式のパスを
+    渡されても判定できるようにするため。
+    """
     if is_secret_file(path):
         return True
-    parts = path.replace(os.sep, "/").split("/")[:-1]
+    normalized = path.replace("\\", "/").replace(os.sep, "/")
+    parts = normalized.split("/")[:-1]
     return any(p.lower() in SECRET_DIRS for p in parts)
 
 

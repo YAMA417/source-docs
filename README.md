@@ -29,13 +29,27 @@ Claude Code のプラグインとして入れる。
 /plugin install source-docs@source-docs
 ```
 
-手動で置きたい場合は `skills/source-docs/` の中身を
-`~/.claude/skills/source-docs/` へコピーする。
+プラグインとして入れた場合、**起動名は `/source-docs:source-docs`** になる
+（プラグインのスキルは `plugin-name:skill-name` の名前空間を持つ）。
+
+### 個人スキルとして置く
+
+全プロジェクトで使える。起動名は `/source-docs`。
 
 ```bash
 git clone https://github.com/YAMA417/source-docs.git
 mkdir -p ~/.claude/skills/source-docs
 cp -r source-docs/skills/source-docs/. ~/.claude/skills/source-docs/
+```
+
+### プロジェクトスキルとして置く
+
+そのリポジトリだけで有効。**リポジトリに commit すれば、clone した全員が使える。**
+チームで配るならこれが確実。起動名は `/source-docs`。
+
+```bash
+mkdir -p <project>/.claude/skills/source-docs
+cp -r source-docs/skills/source-docs/. <project>/.claude/skills/source-docs/
 ```
 
 ## 使い方
@@ -58,6 +72,9 @@ cp -r source-docs/skills/source-docs/. ~/.claude/skills/source-docs/
 /source-docs --format both --out docs/architecture
 /source-docs --repo ./frontend --repo ./backend
 ```
+
+プラグインとして入れた場合は `/source-docs:source-docs` と打つ。
+どの入れ方でも「DB 定義書を作って」のような自然な依頼で起動する。
 
 ## ワークフロー
 
@@ -93,6 +110,12 @@ python3 ~/.claude/skills/source-docs/scripts/inventory.py --repo .
 python3 ~/.claude/skills/source-docs/scripts/verify.py --doc docs/system/database.md --repo .
 python3 ~/.claude/skills/source-docs/scripts/secrets.py --doc docs/system/database.md
 python3 ~/.claude/skills/source-docs/scripts/md2html.py --src docs/system --out docs/system/html
+
+# 外部スクリプトを読み込みたくない場合（図は描画されずコードのまま残る）
+python3 ~/.claude/skills/source-docs/scripts/md2html.py --src docs/system --out docs/system/html --no-mermaid
+
+# 機密検出の値を実際に見る（既定は伏せる）
+python3 ~/.claude/skills/source-docs/scripts/secrets.py --doc docs/system/api.md --reveal
 ```
 
 ## 依存
@@ -129,26 +152,41 @@ Claude が自分で開くこともしない。
 | 鍵そのもの | `*.pem` / `*.key` / `*.p12` / `*.jks` / `id_rsa` |
 | 認証情報ファイル | `credentials.json` / `service-account.json` / `.npmrc` / `.netrc` / `terraform.tfvars` |
 | ディレクトリごと | `.ssh/` / `.aws/` / `.gnupg/` / `.kube/` / `credentials/` / `secrets/` |
+| その他 | `.envrc` / `*.tfvars` / `*.p8` / `.git-credentials` / `.pgpass` |
+| **シンボリックリンク** | 名前が `schema.ts` でもリンク先は分からない |
 
-例外は `.env.example` などのテンプレートのみ。外部連携の変数名を知るために読むが、
-**変数名しか見ない。**
+例外は `.env.example` などのテンプレートのみ。外部連携の変数名を知るために読む。
+ただし**開けば値も見える**ので、「値を読まない」は仕組みではなく約束である点に注意。
 
 **資料 1 本ごとに機密検出を通す。** `secrets.py` はクラウドサービスのトークン（GitHub /
 Slack / Stripe / OpenAI / Anthropic / Google / SendGrid / Twilio / npm / AWS）、秘密鍵、
 JWT、DB 接続文字列、メールアドレス、電話番号、私有 IP、内部ホスト名を検出する。
 **検出しても自動で伏せ字にしない。** 誤検知が出るので、判断は必ず人間に回す。
 
-**生成した HTML は安全側に倒す。** `md2html.py` はリンク先の `javascript:` や `data:`
-スキームを落とし、`href` を属性としてエスケープする。資料の元は他人のリポジトリの
-文字列なので、無検査で HTML に入れない。
+**生成した HTML は安全側に倒す。** リンクは禁止一覧ではなく**許可一覧**で判定する
+（`http` / `https` / `mailto` / ページ内 / 相対リンクのみ）。制御文字を含むものは通さない。
+ファイル名も属性としてエスケープする。資料の元は他人のリポジトリの文字列なので、
+無検査で HTML に入れない。
+
+**Mermaid は修正済みのバージョンを SRI 付きで読み込む。** 11.17.2 を
+`integrity` / `crossorigin` 付きで指定する。v10 系は 10.9.8 未満、v11 系は 11.16.1 未満に
+既知の XSS（CVE-2025-54881 ほか）があり、`securityLevel: strict` でも影響を受ける。
+**外部スクリプトを一切読み込みたくない場合は `--no-mermaid`** を付ける。
 
 **書き出し先を検証する。** `.git` / `node_modules` を含むパスやホームディレクトリ直下への
 出力は拒否する。既存ファイルを上書きする場合はそのパスを標準エラーに出す。黙って上書きしない。
+
+**入力サイズに上限がある。** 1 ファイル 1MB / 走査合計 50MB / 検査対象 5MB / 1 行 4000 文字。
+超えた分は切り捨て、切り捨てたことを標準エラーに出す。巨大な入力でメモリや CPU を
+食い潰されないため。
 
 ### それでも防げないこと
 
 - **機密検出は誤検知も見落としもある。** パターンに無い形式のトークンは検出できない
 - **除外リストは名前で判定する。** 変わった名前のファイルに秘密が入っていれば読んでしまう
+- **`.env.example` は開く。** 変数名を得るためだが、実値が書かれていれば見えてしまう
+- **Mermaid は外部スクリプト。** CDN が侵害されれば SRI で実行は止まるが図は出ない。
+  信用しないなら `--no-mermaid`
 - **公開前に人間が読む必要がある。** 特に社外へ出す資料は、機密検出を通したうえで目視する
 
 ## このスキルの限界

@@ -22,18 +22,31 @@ import os
 import re
 import sys
 
-MERMAID_CDN = "https://cdnjs.cloudflare.com/ajax/libs/mermaid/10.9.1/mermaid.min.js"
+import _secure
+
+# Mermaid は既知の XSS（CVE-2025-54881 ほか）が修正されたバージョンを使う。
+# v10 系は 10.9.8 未満、v11 系は 11.16.1 未満が影響を受ける。
+# SRI を付けて、CDN 側で差し替えられた場合に実行されないようにする。
+MERMAID_VERSION = "11.17.2"
+MERMAID_CDN = f"https://cdn.jsdelivr.net/npm/mermaid@{MERMAID_VERSION}/dist/mermaid.min.js"
+MERMAID_SRI = "sha384-EOXBFmc3gx5mb+vn0vPvvGqACToJD24hhacX5Yx+8NUUQrHIle/Qi5Bg9o3zKwW2"
 
 RE_HEADING = re.compile(r"^(#{1,6})\s+(.*)$")
 RE_FENCE = re.compile(r"^```\s*([A-Za-z0-9_+-]*)\s*$")
 RE_UL = re.compile(r"^[-*]\s+(.*)$")
 RE_OL = re.compile(r"^\d+\.\s+(.*)$")
 RE_QUOTE = re.compile(r"^>\s?(.*)$")
-RE_TABLE_DIVIDER = re.compile(r"^\|[\s:|-]+\|$")
+# 区切り行。ハイフンを 1 つ以上含むことを条件にする。
+# `|  |  |` のような空セル行を区切りと誤認しないため
+RE_TABLE_DIVIDER = re.compile(r"^\|[\s:|-]*-[\s:|-]*\|$")
 
 # 生成した HTML はブラウザで開かれる。資料の元になるのは他人のリポジトリの
-# 文字列なので、リンク先を無検査で href に入れない
-UNSAFE_SCHEMES = ("javascript:", "data:", "vbscript:", "file:", "blob:")
+# 文字列なので、リンク先を無検査で href に入れない。
+#
+# 禁止一覧ではなく**許可一覧**で判定する。禁止一覧は制御文字・大文字・
+# 実体参照・全角文字などで回避されうる。
+SAFE_SCHEMES = ("http://", "https://", "mailto:")
+RE_CONTROL = re.compile(r"[\x00-\x20\x7f]")
 
 RE_INLINE_CODE = re.compile(r"`([^`]+)`")
 RE_BOLD = re.compile(r"\*\*([^*]+)\*\*")
@@ -43,17 +56,33 @@ RE_LINK = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
 def safe_href(href):
     """リンク先を href に入れられる形にする。
 
-    スクリプトを実行しうるスキームは落とし、引用符はエスケープする。
-    エスケープを怠ると `"` ひとつで属性を抜けられる。
+    許可した形のリンクだけを通し、それ以外は `#` にする。
+    通すものは 3 つだけ。
+
+    1. `http://` `https://` `mailto:` で始まる絶対リンク
+    2. `#` で始まるページ内リンク
+    3. スキームを持たない相対リンク（`db.md` `../a/b.html`）
+
+    どれにも当てはまらないものは、スキームが何であれ落とす。
     """
     h = href.strip()
-    # 制御文字と空白を挟んでスキームを偽装する手口があるので先に潰す
-    compact = "".join(h.split()).lower()
-    compact = compact.replace("\x00", "")
-    if compact.startswith(UNSAFE_SCHEMES):
+    # 制御文字を挟んでスキームを偽装する手口があるので、含むものは通さない
+    if RE_CONTROL.search(h):
         return "#"
+
+    lower = h.lower()
     if h.endswith(".md"):
         h = h[:-3] + ".html"
+        lower = h.lower()
+
+    if lower.startswith(SAFE_SCHEMES) or h.startswith("#"):
+        return html.escape(h, quote=True)
+
+    # スキームらしきものを持つなら通さない。`a:b` の形は相対リンクではない
+    scheme_end = h.find(":")
+    if scheme_end != -1 and "/" not in h[:scheme_end]:
+        return "#"
+
     return html.escape(h, quote=True)
 
 
@@ -65,22 +94,26 @@ def render_inline(text):
     """
     slots = []
 
-    def stash_code(m):
-        slots.append(html.escape(m.group(1)))
+    def stash(rendered):
+        slots.append(rendered)
         return f"\x00{len(slots) - 1}\x00"
 
+    def stash_code(m):
+        return stash(f"<code>{html.escape(m.group(1))}</code>")
+
+    def stash_link(m):
+        # href は**エスケープ前**の原文から取る。escape 済みの文字列から取ると
+        # `&` が `&amp;` になった状態で再エスケープされ、`&amp;amp;` になる
+        label = html.escape(m.group(1))
+        return stash(f'<a href="{safe_href(m.group(2))}">{label}</a>')
+
     text = RE_INLINE_CODE.sub(stash_code, text)
+    text = RE_LINK.sub(stash_link, text)
     text = html.escape(text)
     text = RE_BOLD.sub(r"<strong>\1</strong>", text)
 
-    def link(m):
-        label, href = m.group(1), m.group(2)
-        return f'<a href="{safe_href(href)}">{label}</a>'
-
-    text = RE_LINK.sub(link, text)
-
-    for i, code in enumerate(slots):
-        text = text.replace(f"\x00{i}\x00", f"<code>{code}</code>")
+    for i, rendered in enumerate(slots):
+        text = text.replace(f"\x00{i}\x00", rendered)
     return text
 
 
@@ -108,13 +141,19 @@ def parse_blocks(md):
         fence = RE_FENCE.match(line)
         if fence:
             lang = fence.group(1)
-            i += 1
-            body = []
-            while i < n and not lines[i].startswith("```"):
-                body.append(lines[i])
+            close = -1
+            for j in range(i + 1, n):
+                if lines[j].startswith("```"):
+                    close = j
+                    break
+            if close == -1:
+                # 閉じフェンスが無い。ここから先を全部コードにすると
+                # 残りの見出しも表も消える。開きフェンスを本文として扱う
+                blocks.append(("para", line))
                 i += 1
-            i += 1  # 閉じフェンス
-            blocks.append(("code", lang, "\n".join(body)))
+                continue
+            blocks.append(("code", lang, "\n".join(lines[i + 1:close])))
+            i = close + 1
             continue
 
         heading = RE_HEADING.match(line)
@@ -268,6 +307,12 @@ td { border-bottom:1px solid var(--line); padding:9px 10px 9px 0; vertical-align
 td:first-child { color:var(--ink); }
 """
 
+MERMAID_INIT = (
+    '<script src="{cdn}" integrity="{sri}" crossorigin="anonymous" '
+    'referrerpolicy="no-referrer"></script>\n'
+    '<script>mermaid.initialize({{ startOnLoad: true, securityLevel: "strict" }});</script>'
+)
+
 PAGE = """\
 <!doctype html>
 <html lang="ja">
@@ -282,8 +327,7 @@ PAGE = """\
 <nav class="top">{nav}</nav>
 {body}
 </div>
-<script src="{cdn}"></script>
-<script>mermaid.initialize({{ startOnLoad: true, securityLevel: "strict" }});</script>
+{mermaid_init}
 </body>
 </html>
 """
@@ -296,7 +340,10 @@ def _nav_html(pages, current):
         if name == current:
             parts.append(f"<span>{html.escape(title)}</span>")
         else:
-            parts.append(f'<a href="{name}.html">{html.escape(title)}</a>')
+            # ファイル名は対象リポジトリ由来なので、属性としてエスケープする。
+            # `x" onmouseover="...` のような名前で属性を抜けられる
+            href = html.escape(f"{name}.html", quote=True)
+            parts.append(f'<a href="{href}">{html.escape(title)}</a>')
     return " ".join(parts)
 
 
@@ -305,7 +352,20 @@ FORBIDDEN_OUT_PARTS = frozenset({".git", ".svn", "node_modules"})
 
 
 def _page_names(src_dir):
-    return sorted(f[:-3] for f in os.listdir(src_dir) if f.endswith(".md"))
+    """変換対象の md を列挙する。
+
+    シンボリックリンクは開かない。`attack.md -> ~/.ssh/id_rsa` のような
+    リンクを置かれると、その中身が HTML に埋め込まれる。
+    """
+    names = []
+    for f in os.listdir(src_dir):
+        if not f.endswith(".md"):
+            continue
+        if _secure.is_unsafe_to_open(os.path.join(src_dir, f)):
+            print(f"warning: 読み飛ばした（リンクまたは除外対象）: {f}", file=sys.stderr)
+            continue
+        names.append(f[:-3])
+    return sorted(names)
 
 
 def existing_targets(src_dir, out_dir):
@@ -320,8 +380,16 @@ def existing_targets(src_dir, out_dir):
 
 
 def _check_out_dir(out_dir):
-    """出力先が壊してはいけない場所でないか確かめる。"""
-    absolute = os.path.abspath(out_dir)
+    """出力先が壊してはいけない場所でないか確かめる。
+
+    シンボリックリンクは拒否する。`abspath` はリンクを解決しないので、
+    リンク越しに検査をすり抜けて別の場所を上書きできてしまう。
+    """
+    if os.path.islink(out_dir.rstrip(os.sep)):
+        print(f"error: 出力先がシンボリックリンク: {out_dir}", file=sys.stderr)
+        raise SystemExit(2)
+
+    absolute = os.path.realpath(out_dir)
     parts = absolute.replace(os.sep, "/").split("/")
     bad = FORBIDDEN_OUT_PARTS.intersection(p for p in parts if p)
     if bad:
@@ -335,11 +403,14 @@ def _check_out_dir(out_dir):
         raise SystemExit(2)
 
 
-def write_site(src_dir, out_dir):
+def write_site(src_dir, out_dir, mermaid=True):
     """src_dir の md をすべて変換し、index と style を含めて out_dir に書く。
 
     既存ファイルを上書きする場合は、そのパスを標準エラーに出す。
     黙って上書きしない。
+
+    `mermaid=False` にすると CDN のスクリプトを一切読み込まない。
+    図は描画されずコードのまま残るが、外部スクリプトを実行しなくて済む。
     """
     if not os.path.isdir(src_dir):
         print(f"error: 入力ディレクトリが見つかりません: {src_dir}", file=sys.stderr)
@@ -366,24 +437,28 @@ def write_site(src_dir, out_dir):
     pages = [(name, title) for name, title, _ in parsed]
     written = []
 
+    init = MERMAID_INIT.format(cdn=MERMAID_CDN, sri=MERMAID_SRI) if mermaid else ""
+
     for name, title, body in parsed:
         path = os.path.join(out_dir, f"{name}.html")
         with open(path, "w", encoding="utf-8") as f:
             f.write(PAGE.format(
                 title=html.escape(title), nav=_nav_html(pages, name),
-                body=body, cdn=MERMAID_CDN,
+                body=body, mermaid_init=init,
             ))
         written.append(path)
 
     items = "".join(
-        f'<li><a href="{name}.html">{html.escape(title)}</a></li>' for name, title in pages
+        f'<li><a href="{html.escape(name + ".html", quote=True)}">'
+        f"{html.escape(title)}</a></li>"
+        for name, title in pages
     )
     index_body = f"<h1>設計資料</h1><ul>{items}</ul>"
     index_path = os.path.join(out_dir, "index.html")
     with open(index_path, "w", encoding="utf-8") as f:
         f.write(PAGE.format(
             title="設計資料", nav=_nav_html(pages, None),
-            body=index_body, cdn=MERMAID_CDN,
+            body=index_body, mermaid_init=init,
         ))
     written.append(index_path)
 
@@ -399,9 +474,14 @@ def main():
     ap = argparse.ArgumentParser(description="md を複数ページ HTML に変換する")
     ap.add_argument("--src", required=True, help="md のあるディレクトリ")
     ap.add_argument("--out", required=True, help="出力先ディレクトリ")
+    ap.add_argument(
+        "--no-mermaid",
+        action="store_true",
+        help="Mermaid の CDN スクリプトを読み込まない。図は描画されずコードのまま残る",
+    )
     args = ap.parse_args()
 
-    written = write_site(args.src, args.out)
+    written = write_site(args.src, args.out, mermaid=not args.no_mermaid)
     for path in written:
         print(path)
     return 0

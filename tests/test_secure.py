@@ -56,3 +56,20 @@ class SymlinkTest(unittest.TestCase):
             os.symlink(target, link)
             self.assertTrue(_secure.is_unsafe_to_open(link))
             self.assertFalse(_secure.is_unsafe_to_open(target))
+
+
+class AdditionalSecretFilesTest(unittest.TestCase):
+    def test_direnv_and_terraform_variants(self):
+        for name in (".envrc", "prod.tfvars", "prod.tfvars.json", "staging.tfvars"):
+            self.assertTrue(_secure.is_secret_file(name), name)
+
+    def test_apple_and_git_credentials(self):
+        for name in ("AuthKey_ABC123.p8", ".git-credentials", ".pgpass", ".s3cfg"):
+            self.assertTrue(_secure.is_secret_file(name), name)
+
+    def test_windows_separator_is_normalized(self):
+        self.assertTrue(_secure.is_secret_path("app\\credentials\\google.json"))
+
+    def test_ordinary_files_still_allowed(self):
+        for name in ("variables.tf", "main.tf", "config.ts", "envrc.md"):
+            self.assertFalse(_secure.is_secret_file(name), name)

@@ -78,3 +78,48 @@ class MaskTest(unittest.TestCase):
 
     def test_empty_is_safe(self):
         self.assertEqual(secrets_mod.mask(""), "")
+
+
+class RedosTest(unittest.TestCase):
+    def test_hostname_pattern_is_linear_enough(self):
+        """病的な入力でも実用的な時間で終わる。"""
+        import time
+        evil = "a." * 6000 + "invalid"
+        start = time.time()
+        secrets_mod.scan(evil, [])
+        self.assertLess(time.time() - start, 0.15)
+
+
+class PlaceholderTest(unittest.TestCase):
+    def test_uppercase_placeholder_is_not_a_secret(self):
+        for doc in ("client_secret: CLIENT_SECRET",
+                    "token = YOUR_ACCESS_TOKEN",
+                    "api_key: <YOUR_API_KEY>",
+                    "password = CHANGE_ME_PLEASE"):
+            self.assertEqual(secrets_mod.scan(doc, []), [], doc)
+
+    def test_real_looking_value_is_still_detected(self):
+        doc = "api_key = " + "a8Kd93jfLp0Qz" + "xY7v"
+        self.assertNotEqual(secrets_mod.scan(doc, []), [])
+
+
+class AdditionalPatternTest(unittest.TestCase):
+    def test_basic_auth_header(self):
+        doc = "Authorization: Basic " + "dXNlcjpwYXNzd29yZDEyMzQ1Ng=="
+        self.assertIn("Basic 認証ヘッダー", {f["label"] for f in secrets_mod.scan(doc, [])})
+
+    def test_pgp_private_key(self):
+        doc = "-----BEGIN PGP PRIVATE KEY BLOCK-----"
+        self.assertIn("秘密鍵ブロック", {f["label"] for f in secrets_mod.scan(doc, [])})
+
+
+class InputLimitTest(unittest.TestCase):
+    def test_reports_truncation_for_huge_input(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "big.md")
+            with open(path, "w", encoding="utf-8") as f:
+                f.write("x" * (secrets_mod.MAX_DOC_BYTES + 10))
+            text, truncated = secrets_mod.read_doc(path)
+            self.assertTrue(truncated)
+            self.assertLessEqual(len(text.encode("utf-8")), secrets_mod.MAX_DOC_BYTES)

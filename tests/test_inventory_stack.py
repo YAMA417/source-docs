@@ -61,3 +61,27 @@ class ReadDependenciesOtherManifestsTest(unittest.TestCase):
         path = os.path.join(FIXTURES, "go-gin", "go.mod")
         deps = inventory.read_dependencies(path)
         self.assertIn("gin-gonic/gin", deps)
+
+
+class ManifestRobustnessTest(unittest.TestCase):
+    def test_poetry_dependencies(self):
+        text = '[tool.poetry.dependencies]\npython = "^3.11"\nfastapi = "^0.115"\n'
+        self.assertIn("fastapi", inventory._read_pyproject(text))
+
+    def test_go_single_line_require(self):
+        text = "require github.com/gin-gonic/gin v1.10.0\n"
+        self.assertIn("gin-gonic/gin", inventory._read_go_mod(text))
+
+    def test_gemfile(self):
+        text = "source 'https://rubygems.org'\ngem 'rails', '~> 7.1'\ngem \"pg\"\n"
+        deps = inventory._read_gemfile(text)
+        self.assertIn("rails", deps)
+        self.assertIn("pg", deps)
+
+    def test_dependencies_as_list_does_not_crash(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "package.json")
+            with open(p, "w", encoding="utf-8") as f:
+                f.write('{"dependencies": []}')
+            self.assertEqual(inventory.read_dependencies(p), set())

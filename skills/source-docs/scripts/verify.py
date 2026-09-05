@@ -140,8 +140,13 @@ def extract_error_types(doc):
 
 
 def _is_divider(cells):
-    """Markdown の表の区切り行（| --- | --- |）かどうか。"""
-    return bool(cells) and set("".join(cells)) <= set("-: ")
+    """Markdown の表の区切り行（| --- | --- |）かどうか。
+
+    ハイフンを 1 つ以上含むことを条件にする。`|  |  |` のような
+    空セル行を区切りと誤認しないため。
+    """
+    joined = "".join(cells)
+    return bool(cells) and "-" in joined and set(joined) <= set("-: ")
 
 
 def extract_tables(doc):
@@ -226,16 +231,49 @@ def static_segments(path):
     return [s for s in path.split("/") if s and not RE_PATH_PARAM.match(s)]
 
 
+def _method_conflicts(method, path, sources):
+    """パスに対して、書いたメソッドと違うメソッドだけが定義されていないか。
+
+    `router.get("/only-get")` しか無いのに `POST /only-get` と書いた、という
+    誤りを拾う。メソッドが読み取れない書き方（オブジェクトのキーで持つなど）は
+    判定できないので、その場合は衝突なしとして扱う。
+    """
+    segs = static_segments(path)
+    if not segs:
+        return False
+    tail = segs[-1]
+
+    found = set()
+    for m in HTTP_METHODS:
+        # `.get("/x"` `.get('/x'` `@Get("/x"` `router.get(\`/x\`` などを拾う
+        pattern = re.compile(
+            r"[.@]" + m.lower() + r"\s*\(\s*[\"\'`][^\"\'`]*" + re.escape(tail),
+            re.IGNORECASE,
+        )
+        if pattern.search(sources):
+            found.add(m)
+
+    # メソッド付きの定義が 1 つも見つからないなら判定材料が無い
+    if not found:
+        return False
+    return method not in found
+
+
 def endpoint_exists(method, path, sources):
     """静的セグメントの最長連続列がソースに現れるかで判定する。
 
     ルート定義は親でマウントされて分割されていることが多く、フルパスは
     ソース中に現れない。そのため連続する静的セグメントの結合で照合する。
     誤検知を減らす方向に倒し、取りこぼしは許容する。
+
+    パスが見つかっても、**メソッドが食い違っていれば不一致とする。**
     """
     segs = static_segments(path)
     if not segs:
         return True  # ルートパスなど、照合対象が無いものは通す
+
+    if _method_conflicts(method, path, sources):
+        return False
 
     # 1. 連続する 2 セグメント以上がそのまま現れるか。最も確度が高い
     for size in range(len(segs), 1, -1):
@@ -259,8 +297,15 @@ def main():
     if not os.path.isfile(args.doc):
         raise SystemExit(f"error: 設計書が見つかりません: {args.doc}")
 
-    with open(args.doc, encoding="utf-8") as f:
-        doc = f.read()
+    # 検査対象そのものにも上限を設ける
+    with open(args.doc, "rb") as f:
+        raw = f.read(MAX_FILE_BYTES + 1)
+    if len(raw) > MAX_FILE_BYTES:
+        print(
+            f"warning: 設計書が {MAX_FILE_BYTES // 1_000_000}MB を超えたため切り詰めた",
+            file=sys.stderr,
+        )
+    doc = raw[:MAX_FILE_BYTES].decode("utf-8", errors="ignore")
 
     sources, file_count = load_sources(args.repo)
 
