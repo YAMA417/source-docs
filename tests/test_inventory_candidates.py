@@ -153,3 +153,61 @@ class GlobDepthTest(unittest.TestCase):
                 f.write("x")
             c = inventory.find_candidates(repo)
             self.assertIn("routes/orders.ts", c["route"])
+
+
+class DoubleStarTest(unittest.TestCase):
+    """`**` は 0 個以上のディレクトリに一致する。深さを固定しないため。"""
+
+    def test_matches_zero_dirs(self):
+        self.assertTrue(inventory.match_path("app/page.tsx", "**/app/**/page.tsx"))
+
+    def test_matches_many_dirs(self):
+        self.assertTrue(
+            inventory.match_path(
+                "frontend/app/mypage/article/[id]/edit/page.tsx", "**/app/**/page.tsx"
+            )
+        )
+
+    def test_single_star_still_one_segment(self):
+        self.assertFalse(inventory.match_path("app/a/b/page.tsx", "*/app/*/page.tsx"))
+
+
+class DeepCandidateTest(unittest.TestCase):
+    """深い階層の画面・ルート・連携を取りこぼさない。"""
+
+    def setUp(self):
+        import tempfile
+        self.tmp = tempfile.TemporaryDirectory()
+        self.repo = self.tmp.name
+        for rel in (
+            "frontend/app/mypage/article/[id]/edit/page.tsx",
+            "frontend/app/feature/[...path]/route.ts",
+            "frontend/app/api/articles/route.ts",
+            "backend/src/api/snap/services/snap-frontend-webhook.ts",
+            "frontend/app/layout.tsx",
+        ):
+            path = os.path.join(self.repo, rel)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w", encoding="utf-8") as f:
+                f.write("export const x = 1;\n")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_deep_screen_is_found(self):
+        c = inventory.find_candidates(self.repo)
+        self.assertIn("frontend/app/mypage/article/[id]/edit/page.tsx", c["screen"])
+
+    def test_route_outside_api_dir_is_found(self):
+        c = inventory.find_candidates(self.repo)
+        self.assertIn("frontend/app/feature/[...path]/route.ts", c["route"])
+
+    def test_webhook_by_filename_is_an_integration(self):
+        c = inventory.find_candidates(self.repo)
+        self.assertIn(
+            "backend/src/api/snap/services/snap-frontend-webhook.ts", c["integration"]
+        )
+
+    def test_layout_is_still_not_a_screen(self):
+        c = inventory.find_candidates(self.repo)
+        self.assertNotIn("frontend/app/layout.tsx", c["screen"])
