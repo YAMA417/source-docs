@@ -1,7 +1,7 @@
 {
   "name": "source-docs",
-  "description": "既存プロジェクトのソースコードから、DB 定義・ER 図・API 仕様・画面遷移図・外部連携の技術資料を生成する。ソースから確認できないことは書かず「未確認」として残す。",
-  "version": "0.0.3",
+  "description": "既存プロジェクトのソースコードから技術資料を生成する。システム全体の構造（DB 定義・ER 図・API 仕様・画面遷移図・外部連携）、1 機能の処理概要、1 機能の詳細設計の 3 モード。ソースから確認できないことは書かず「未確認」として残す。",
+  "version": "0.3.0",
   "author": {
     "name": "YAMA417",
     "url": "https://github.com/YAMA417"
@@ -14,6 +14,8 @@
     "reverse-engineering",
     "er-diagram",
     "api-spec",
+    "sequence-diagram",
+    "detailed-design",
     "onboarding"
   ]
 }

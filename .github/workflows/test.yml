@@ -1,0 +1,47 @@
+name: test
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  unittest:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 利用者の環境は選べない。古い Python でも動くことを確かめる
+        python: ["3.9", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: テストを走らせる
+        run: python -m unittest discover -s tests -v
+
+  version:
+    # バージョンを下げた状態で配ると、既に入れた人に更新が届かない。
+    # main へ入る前に機械で止める
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: バージョンが下がっていないことを確かめる
+        run: |
+          current=$(python -c "import json;print(json.load(open('.claude-plugin/plugin.json'))['version'])")
+          git show origin/${{ github.base_ref }}:.claude-plugin/plugin.json > /tmp/base.json
+          base=$(python -c "import json;print(json.load(open('/tmp/base.json'))['version'])")
+          echo "base=$base current=$current"
+          python - "$base" "$current" <<'PY'
+          import sys
+          def parse(v):
+              return tuple(int(x) for x in v.split("."))
+          base, current = parse(sys.argv[1]), parse(sys.argv[2])
+          if current < base:
+              sys.exit(f"error: バージョンが下がっている: {sys.argv[1]} -> {sys.argv[2]}")
+          print("ok")
+          PY

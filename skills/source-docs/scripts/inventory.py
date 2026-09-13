@@ -247,29 +247,32 @@ CANDIDATE_PATTERNS = {
         "*/drizzle/*.ts",
     ],
     "route": [
-        "*/routes/*", "*/routes/*/*",
-        "*/controllers/*", "*/controllers/*/*",
-        "*/api/*/route.ts", "*/api/*/*/route.ts", "*/api/*/*/*/route.ts",
-        "*/pages/api/*", "*/pages/api/*/*",
-        "*/handlers/*", "*/endpoints/*", "*/resolvers/*",
+        "**/routes/**",
+        "**/controllers/**",
+        # App Router の `route.ts`。`app/api/` 配下とは限らない。
+        # 旧 URL 互換のルートなどが `app/` 直下に置かれる
+        "**/app/**/route.ts", "**/app/**/route.js",
+        "**/pages/api/**",
+        "**/handlers/**", "**/endpoints/**", "**/resolvers/**",
         # Supabase / Netlify などの Edge Function も利用者から見える入口
-        "*/functions/*/index.ts", "*/functions/*/*.ts",
+        "**/functions/*/index.ts", "**/functions/*/*.ts",
     ],
     "screen": [
-        # App Router。app/ 直下のトップページも画面なので忘れない
-        "*/app/page.tsx",
-        "*/app/*/page.tsx", "*/app/*/*/page.tsx", "*/app/*/*/*/page.tsx",
-        "*/pages/*.tsx",
-        "*/screens/*", "*/screens/*/*",
-        "*/views/*.vue", "*/views/*.tsx",
-        "*/lib/screens/*.dart", "*/lib/pages/*.dart",
+        # App Router。深さは固定しない。`app/mypage/article/[id]/edit/page.tsx` まで拾う
+        "**/app/**/page.tsx", "**/app/**/page.jsx",
+        "**/pages/*.tsx",
+        "**/screens/**",
+        "**/views/*.vue", "**/views/*.tsx",
+        "**/lib/screens/*.dart", "**/lib/pages/*.dart",
     ],
     "integration": [
-        "*/gateways/*", "*/clients/*", "*/integrations/*", "*/webhooks/*",
-        "*/adapters/*", "*/external/*", "*/providers/*",
-        # 名前に webhook を含むディレクトリ。Edge Function として置かれることが多い。
-        # route にも入るが、それでよい。入口であり連携でもある
-        "*/*webhook*/*",
+        "**/gateways/**", "**/clients/**", "**/integrations/**", "**/webhooks/**",
+        "**/adapters/**", "**/external/**", "**/providers/**",
+        # ディレクトリ名だけでなくファイル名でも拾う。
+        # `services/snap-frontend-webhook.ts` のように、連携先ごとの
+        # ファイルが業務ディレクトリの中に置かれることが多い
+        "**/*webhook*",
+        "**/*-client.ts", "**/*-gateway.ts",
     ],
 }
 
@@ -279,9 +282,7 @@ CANDIDATE_SKIP_SUFFIX = (".test.ts", ".test.tsx", ".spec.ts", ".spec.tsx", ".d.t
 # Expo Router は app/ 配下の .tsx がそのまま画面になる（page.tsx 規約ではない）。
 # スタック判定で Expo / React Native と分かったときだけこのパターンを足す。
 EXPO_SCREEN_PATTERNS = [
-    "*/app/*.tsx",
-    "*/app/*/*.tsx",
-    "*/app/*/*/*.tsx",
+    "**/app/**/*.tsx",
 ]
 
 # 画面ではないファイル名。レイアウト・状態表示は画面一覧に載せない。
@@ -304,24 +305,35 @@ def match_path(rel, pattern):
     pat_parts = pattern.split("/")
     rel_parts = rel.split("/")
 
+    # 先頭の `*/` は「0 個以上のディレクトリ」。`**/` と同じ意味なので読み替える
     if pat_parts and pat_parts[0] == "*":
-        rest = pat_parts[1:]
-        # 0 個以上のディレクトリを読み飛ばして、残りが一致する位置を探す
-        for start in range(0, len(rel_parts) - len(rest) + 1):
-            if _match_segments(rel_parts[start:], rest):
-                return True
-        return False
+        pat_parts = ["**"] + pat_parts[1:]
 
     return _match_segments(rel_parts, pat_parts)
 
 
 def _match_segments(rel_parts, pat_parts):
-    """セグメント数が一致し、各セグメントが fnmatch で一致するか。"""
-    if len(rel_parts) != len(pat_parts):
+    """セグメント単位で照合する。
+
+    `*` は 1 セグメント内だけに効く。`**` は 0 個以上のディレクトリに一致する。
+    深さを固定したパターンでは、`app/a/b/c/page.tsx` のような深い画面を落とす。
+    """
+    if not pat_parts:
+        return not rel_parts
+
+    if pat_parts[0] == "**":
+        rest = pat_parts[1:]
+        # `**` が飲み込むディレクトリ数を 0 から順に試す
+        for i in range(len(rel_parts) + 1):
+            if _match_segments(rel_parts[i:], rest):
+                return True
         return False
-    return all(
-        fnmatch.fnmatch(r, p) for r, p in zip(rel_parts, pat_parts)
-    )
+
+    if not rel_parts:
+        return False
+    if not fnmatch.fnmatch(rel_parts[0], pat_parts[0]):
+        return False
+    return _match_segments(rel_parts[1:], pat_parts[1:])
 
 
 def _walk_files(repo):

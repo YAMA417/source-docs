@@ -254,3 +254,49 @@ class MermaidVersionTest(unittest.TestCase):
                 page = f.read()
             self.assertNotIn("<script", page)
             self.assertIn("flowchart TD", page)
+
+
+class JapaneseFilenameTest(unittest.TestCase):
+    """flow / detail は `flow-スナップ投稿.md` のような名前で出る。"""
+
+    def test_japanese_name_survives_conversion(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            src = os.path.join(tmp, "src")
+            out = os.path.join(tmp, "out")
+            os.makedirs(src)
+            with open(os.path.join(src, "flow-スナップ投稿.md"), "w", encoding="utf-8") as f:
+                f.write("# 処理概要 — スナップ投稿\n\n入力を受け取る。\n")
+
+            written = md2html.write_site(src, out)
+
+            page = os.path.join(out, "flow-スナップ投稿.html")
+            self.assertIn(page, written)
+            self.assertTrue(os.path.isfile(page))
+            with open(os.path.join(out, "index.html"), encoding="utf-8") as f:
+                index = f.read()
+            self.assertIn("スナップ投稿", index)
+
+    def test_sequence_diagram_is_kept_as_mermaid(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            src = os.path.join(tmp, "src")
+            out = os.path.join(tmp, "out")
+            os.makedirs(src)
+            with open(os.path.join(src, "detail-記事作成.md"), "w", encoding="utf-8") as f:
+                f.write(
+                    "# 詳細設計 — 記事作成\n\n"
+                    "```mermaid\n"
+                    "sequenceDiagram\n"
+                    "    画面->>API: POST /api/articles\n"
+                    "    alt 在庫あり\n"
+                    "        API-->>画面: 201\n"
+                    "    end\n"
+                    "```\n"
+                )
+            md2html.write_site(src, out)
+            with open(os.path.join(out, "detail-記事作成.html"), encoding="utf-8") as f:
+                html_text = f.read()
+            self.assertIn('<pre class="mermaid">', html_text)
+            self.assertIn("sequenceDiagram", html_text)
+            self.assertIn("alt 在庫あり", html_text)

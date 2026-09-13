@@ -4,7 +4,8 @@
 
 ## 手順
 
-1. `python3 scripts/inventory.py --repo <path>` を実行し、frontend / backend / orm / db を見る
+1. `python3 <skill-dir>/scripts/inventory.py --repo <path>` を実行し、frontend / backend / orm / db を見る
+   （`<skill-dir>` は SKILL.md が置かれているディレクトリ。相対パスで呼ばない）
 2. 「判定できず」が出た区分は、manifest を直接開いて依存を読む
 3. モノレポならワークスペースごとに区分が違う。リポジトリ単位ではなくパッケージ単位で判定する。
    `--repo` を複数渡すか、ワークスペースのパスを個別に渡す
