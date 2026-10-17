@@ -10,6 +10,7 @@ import re
 from .base import Adapter, line_of, segments, strip_comments
 from .file_routing import RE_REQ_METHOD, HTTP_METHODS
 from .orm_js import column
+from .strapi_spec import core_spec, strapi_major
 
 # --- Strapi --------------------------------------------------------------------
 
@@ -30,7 +31,7 @@ CORE_ACTIONS = [  # (アクション, メソッド, 個別か, 操作)
     ("create", "POST", False, "CREATE"), ("update", "PUT", True, "UPDATE"),
     ("delete", "DELETE", True, "DELETE"),
 ]
-CONVENTION_NOTE = "Strapi の規約で自動生成（schema.json には現れない）"
+CONVENTION_NOTE = "Strapi が自動で作る"
 
 
 class Strapi(Adapter):
@@ -41,6 +42,13 @@ class Strapi(Adapter):
 
     def collect(self, app, b):
         self.content_types = {}
+        self.major = None
+        manifest = "/".join(p for p in (app.root_rel, "package.json") if p)
+        try:
+            deps = (json.loads(app.read(manifest) or "{}").get("dependencies") or {})
+            self.major = strapi_major(deps.get("@strapi/strapi"))
+        except ValueError:
+            pass
         for rel in app.files_matching(r"^src/(api|extensions)/[^/]+/content-types/[^/]+/schema\.json$"):
             self._content_type(app, b, rel)
         routed = set()
@@ -81,6 +89,7 @@ class Strapi(Adapter):
         table = b.add_table(app.ref, name, ev, aliases=(uid, singular, plural))
         table["strapi"] = {"uid": uid, "kind": data.get("kind"), "singularName": singular,
                            "pluralName": plural}
+        table["_schema"] = data
         self.content_types[uid] = table
         table["columns"].append(column("id", "integer", nullable=False, primary=True,
                                        note=CONVENTION_NOTE))
@@ -153,6 +162,11 @@ class Strapi(Adapter):
                 ep = b.add_endpoint(app.ref, method, path,
                                     app.ev(rel, line_of(text, m.start()), "strapi.core-router.convention"),
                                     location=location, operation=action)
+                if not override:
+                    spec = core_spec(action, table["_schema"].get("attributes") or {}, table["_schema"],
+                                     self.major)
+                    if spec:
+                        ep["spec"] = spec
                 b.relate(ep, "tables", table["_uid"],
                          app.ev(rel, line_of(text, m.start()), "strapi.core-controller.convention"),
                          operation=op)
