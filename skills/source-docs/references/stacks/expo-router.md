@@ -5,8 +5,8 @@
 Expo Router は **`app/` 配下の `.tsx` がそのまま画面**になる。`page.tsx` という
 規約は無い。`app/settings.tsx` はそのまま `/settings` 画面。
 
-`inventory.py` はスタック判定で Expo / React Native を検出したときだけ、
-このパターンを適用する。
+解析器（`scripts/sdocs/adapters/file_routing.py` の `ExpoRouter`）は、依存に `expo-router` が
+あるときだけこの規約を適用する。`+api.ts` は画面ではなく API ルートとして扱う。
 
 ## 画面ではないファイル
 

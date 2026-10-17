@@ -1,0 +1,9 @@
+{
+  "kind": "collectionType",
+  "collectionName": "authors",
+  "info": { "singularName": "author", "pluralName": "authors" },
+  "attributes": {
+    "name": { "type": "string", "required": true },
+    "books": { "type": "relation", "relation": "oneToMany", "target": "api::book.book", "mappedBy": "author" }
+  }
+}

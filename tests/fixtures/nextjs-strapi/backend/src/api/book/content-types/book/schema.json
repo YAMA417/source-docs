@@ -1,0 +1,11 @@
+{
+  "kind": "collectionType",
+  "collectionName": "books",
+  "info": { "singularName": "book", "pluralName": "books", "displayName": "Book" },
+  "options": { "draftAndPublish": true },
+  "attributes": {
+    "title": { "type": "string", "required": true },
+    "isbn": { "type": "string", "unique": true },
+    "author": { "type": "relation", "relation": "manyToOne", "target": "api::author.author", "inversedBy": "books" }
+  }
+}
