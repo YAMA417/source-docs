@@ -69,9 +69,7 @@ def pack(groups, size=MAX_NODES):
 
 
 def er_type(text):
-    # `dynamiczone(blocks.a,blocks.b)` のような長い型は、括弧の前だけにする
-    base = str(text or "unknown").split("(")[0].split("（")[0]
-    t = re.sub(r"[^A-Za-z0-9_]", "_", base).strip("_")
+    t = re.sub(r"[^A-Za-z0-9_]", "_", str(text or "unknown")).strip("_")
     return t or "unknown"
 
 

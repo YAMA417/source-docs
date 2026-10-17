@@ -90,19 +90,6 @@ class Ctx:
             for t in f["tables"]:
                 self.features_of.setdefault(t["id"], []).append(f)
 
-    def apps(self):
-        """資料に出すアプリ。中身の無い入れ物（モノレポの直下など）は出さない。"""
-        out = [a for a in self.model["applications"]
-               if any(a["counts"].values()) or a["kind"] != "unknown"]
-        return out or self.model["applications"]
-
-    def app_label(self, app_id):
-        """アプリの表示名。同じ名前のアプリが複数あれば場所を付けて区別する。"""
-        app = self.idx.get(app_id) or {}
-        name = app.get("name") or app.get("key") or app_id
-        same = [a for a in self.model["applications"] if (a.get("name") or a.get("key")) == name]
-        return f"{name}（{app.get('path')}）" if len(same) > 1 else name
-
     def note(self, entity_id):
         return self.ent.get(entity_id) or {}
 
@@ -237,22 +224,22 @@ def render_overview(ctx):
 
     lines += ["## アプリケーションと責務", ""]
     rows = []
-    for app in ctx.apps():
+    for app in m["applications"]:
         note = (a.get("applications") or {}).get(app["id"]) or {}
         c = app["counts"]
-        rows.append([ctx.app_label(app["id"]), code(app["path"]), app["kind"],
+        rows.append([app["name"] or app["key"], code(app["path"]), app["kind"],
                      or_unk(note.get("responsibility")), c["screens"], c["endpoints"], c["tables"],
                      c["jobs"]])
         if not note.get("responsibility"):
-            uv.add(ctx.app_label(app["id"]), "アプリケーションの責務", "注釈未作成")
+            uv.add(app["name"] or app["key"], "アプリケーションの責務", "注釈未作成")
     lines += [table(["アプリケーション", "場所", "種別", "責務", "画面数", "API 数", "テーブル数", "ジョブ数"], rows), ""]
     lines += ["種別はコードから見つかったもので決めている（画面と API の両方があれば fullstack）。", ""]
 
     lines += ["## 技術スタック", ""]
     rows = []
-    for app in ctx.apps():
+    for app in m["applications"]:
         s = app["stack"]
-        rows.append([ctx.app_label(app["id"]), ", ".join(s["frontend"]) or NA,
+        rows.append([app["name"] or app["key"], ", ".join(s["frontend"]) or NA,
                      ", ".join(s["backend"]) or NA, ", ".join(s["orm"]) or NA,
                      ", ".join(s["db"]) or NA, ", ".join(code(x) for x in app["manifests"]) or NA])
     lines += [table(["アプリケーション", "フロント", "バック", "ORM", "DB", "判定の根拠"], rows), ""]
@@ -267,13 +254,12 @@ def render_overview(ctx):
     lines += [table(["入口・構成要素", "件数"], rows), ""]
 
     lines += ["## 主要機能", ""]
-    ranked = sorted(ctx.features, key=lambda f: (f["nameSource"] != "annotation", f["type"] == "api"))
     rows = []
-    for f in ranked[:15]:
+    for f in ctx.features[:20]:
         rows.append([feature_name(f), TYPE_LABEL.get(f["type"], f["type"]), or_unk(f.get("summary"))])
     lines += [table(["機能", "種別", "概要"], rows) or "機能は見つからなかった。", ""]
-    if len(ctx.features) > 15:
-        lines += [f"ほか {len(ctx.features) - 15} 件。全体は [機能一覧]({ctx.link('features.md')})。", ""]
+    if len(ctx.features) > 20:
+        lines += [f"ほか {len(ctx.features) - 20} 件。全体は [機能一覧]({ctx.link('features.md')})。", ""]
     no_screen = [f for f in ctx.features if not f["screens"]]
     lines += [f"機能 {len(ctx.features)} 件のうち、画面を持たないもの（API・Webhook・定期実行・"
               f"キュー・イベント処理など）は {len(no_screen)} 件。", ""]
@@ -289,7 +275,7 @@ def render_overview(ctx):
     rows = [[r["key"], r["files"], code(r["commit"][:12]) if r.get("commit") else UNK]
             for r in m["repositories"]]
     lines += [table(["リポジトリ", "読んだファイル数", "コミット"], rows), ""]
-    rows = [[ctx.app_label(app["id"]), ", ".join(app["adapters"])] for app in ctx.apps()]
+    rows = [[app["name"] or app["key"], ", ".join(app["adapters"])] for app in m["applications"]]
     lines += [table(["アプリケーション", "適用した解析器"], rows), ""]
     if m["unsupported"]:
         lines += [f"解析器が読み取れなかった箇所が {len(m['unsupported'])} 件ある（未確認一覧に載せた）。", ""]
@@ -323,11 +309,11 @@ def _architecture_diagram(ctx):
     m = ctx.model
     lines = ["flowchart LR", '    user(["利用者"])']
     app_nodes = {}
-    for i, app in enumerate(ctx.apps()):
+    for i, app in enumerate(m["applications"]):
         nid = f"app{i}"
         app_nodes[app["id"]] = nid
-        lines.append(f'    {nid}["{mm.label(ctx.app_label(app["id"]) + " (" + app["kind"] + ")")}"]')
-    for app in ctx.apps():
+        lines.append(f'    {nid}["{mm.label((app["name"] or app["key"]) + " (" + app["kind"] + ")")}"]')
+    for app in m["applications"]:
         if app["counts"]["screens"]:
             lines.append(f"    user -->|画面を操作| {app_nodes[app['id']]}")
     # アプリをまたぐ API 呼び出し
@@ -338,8 +324,7 @@ def _architecture_diagram(ctx):
             if target and target["app"] != s["app"]:
                 cross.add((s["app"], target["app"]))
     for src, dst in sorted(cross):
-        if src in app_nodes and dst in app_nodes:
-            lines.append(f"    {app_nodes[src]} -->|API を呼ぶ| {app_nodes[dst]}")
+        lines.append(f"    {app_nodes[src]} -->|API を呼ぶ| {app_nodes[dst]}")
     db_apps = sorted({t["app"] for t in m["tables"]})
     if db_apps:
         lines.append('    db[("データベース")]')
@@ -408,22 +393,18 @@ def render_features(ctx):
         lines.append(or_unk(f.get("summary")))
         lines.append("")
         eps = [ctx.idx[e] for e in f["entrypoints"] if e in ctx.idx]
-        origins = [e for e in eps if e["type"] not in ("http", "graphql", "rpc", "websocket")] or eps
-        rows = [["起点", "、".join(f"{_EP_LABEL.get(e['type'], e['type'])} {code(e['key'])}" for e in origins)],
+        rows = [["入口", "、".join(f"{_EP_LABEL.get(e['type'], e['type'])} {code(e['key'])}" for e in eps)],
                 ["画面", labels(ctx, f["screens"])], ["API", labels(ctx, f["endpoints"])],
                 ["テーブル", tables_cell(ctx, f["tables"])], ["外部連携", labels(ctx, f["integrations"])],
                 ["ジョブ・キュー", labels(ctx, f["jobs"])], ["イベント", labels(ctx, f["events"])],
                 ["資料", _doc_links(ctx, f)]]
         lines += [table(["項目", "内容"], rows), ""]
-        if len(f["entrypoints"]) + len(f["tables"]) + len(f["integrations"]) + len(f["events"]) >= 3:
+        if len(f["entrypoints"]) > 1 or f["tables"] or f["integrations"]:
             lines += [_feature_diagram(ctx, f), ""]
         for note in f["unresolved"]:
             uv.add(feature_name(f), note, "自動解析で入口から import を 3 段までたどった範囲")
-    unnamed = [feature_name(f) for f in ctx.features if f["nameSource"] != "annotation"]
-    if unnamed:
-        more = f" ほか {len(unnamed) - 5} 件" if len(unnamed) > 5 else ""
-        uv.add(f"名前未確定の機能 {len(unnamed)} 件", f"業務上の機能名（{', '.join(unnamed[:5])}{more}）",
-               "コードの命名からは決められない。画面の文言・README・docs に根拠があれば注釈で付ける")
+        if f["nameSource"] != "annotation":
+            uv.add(feature_name(f), "業務上の機能名", "コードの命名からは決められない。注釈で付ける")
     lines += uv.render()
     return "\n".join(lines) + "\n"
 
@@ -661,11 +642,12 @@ def render_api(ctx):
     lines = header(ctx, "API 仕様",
                    "呼び出す側が必要とする情報（入口・入力・出力・ステータス）を定義する。"
                    "中でどう処理するかは書かない（機能ごとの詳細設計の担当）。")
-    endpoints = sorted(m["endpoints"], key=_endpoint_order)
+    endpoints = m["endpoints"]
     lines += ["## API 構成", ""]
     rows = {}
     for e in endpoints:
-        key = (ctx.app_label(e["app"]), e["protocol"])
+        app = ctx.idx.get(e["app"]) or {}
+        key = (app.get("name") or app.get("key") or e["app"], e["protocol"])
         rows[key] = rows.get(key, 0) + 1
     lines += [table(["アプリケーション", "方式", "件数"], [[a, _PROTO.get(p, p), n] for (a, p), n in sorted(rows.items())])
               or "API は見つからなかった。", ""]
@@ -692,8 +674,9 @@ def render_api(ctx):
             lines += [f"### {_PROTO[proto]}", ""]
         rows = []
         for e in group:
+            note = ctx.note(e["id"])
             rows.append([e["method"], code(e["path"]) + (" （Webhook）" if e.get("webhook") else ""),
-                         _endpoint_summary(ctx, e), _endpoint_auth(ctx, e),
+                         or_unk(note.get("summary")), or_unk(note.get("auth")),
                          tables_cell(ctx, e.get("tables", [])), ctx.feature_names(e["id"])])
         lines += [table(["Method", "Path", "概要", "認証", "関連テーブル", "機能"], rows), ""]
     missing_summary(uv, "API", endpoints, ctx)
@@ -706,75 +689,39 @@ def render_api(ctx):
 
 
 _PROTO = {"http": "HTTP", "graphql": "GraphQL", "rpc": "RPC", "websocket": "WebSocket"}
-_METHOD_ORDER = ["GET", "POST", "PUT", "PATCH", "DELETE"]
-_ACTION_LABEL = {"find": "一覧を取得する", "findOne": "1 件を取得する", "create": "作成する",
-                 "update": "更新する", "delete": "削除する"}
-
-
-def _endpoint_order(e):
-    """同じリソースの API がまとまるよう、パス → メソッドの順に並べる。"""
-    path = e["path"]
-    method = _METHOD_ORDER.index(e["method"]) if e["method"] in _METHOD_ORDER else len(_METHOD_ORDER)
-    return (e["protocol"], path.rstrip("/").split("/:")[0].split("/{")[0], path, method)
-
-
-def _endpoint_summary(ctx, e):
-    note = ctx.note(e["id"])
-    if note.get("summary"):
-        return note["summary"]
-    if e.get("spec") and e.get("operation") in _ACTION_LABEL:
-        return f"{_ACTION_LABEL[e['operation']]}（Strapi の既定の API）"
-    return UNK
-
-
-def _endpoint_auth(ctx, e):
-    note = ctx.note(e["id"])
-    if note.get("auth"):
-        return note["auth"]
-    if (ctx.ann.get("api") or {}).get("auth"):
-        return "共通仕様のとおり"
-    return UNK
 
 
 def _endpoint_section(ctx, e, uv):
     note = ctx.note(e["id"])
-    spec = e.get("spec") or {}
     title = f"{e['method']} {e['path']}" if e["protocol"] == "http" else e["path"]
-    lines = [f"### {code(title)} — {_endpoint_summary(ctx, e)}", ""]
+    lines = [f"### {code(title)} — {note.get('summary') or UNK}", ""]
     meta = []
     if e.get("webhook"):
         meta.append("外部サービスから呼ばれる受け口（Webhook）")
-    meta.append(f"認証: {_endpoint_auth(ctx, e)}")
+    meta.append(f"認証: {or_unk(note.get('auth'))}")
     if e["status"] == "unresolved":
         meta.append("一部を確定できていない（未確認一覧を参照）")
     lines += [" / ".join(meta), ""]
-    request = note.get("request") or spec.get("request")
-    responses = note.get("responses") or spec.get("responses")
-    if spec and not (note.get("request") and note.get("responses")):
-        lines += [f"入出力: {spec['source']}", ""]
-    if request:
+    if note.get("request"):
         lines += ["**リクエスト**", "", table(["区分", "名前", "型", "必須", "制約", "説明"], [
             [r.get("in"), code(r["name"]), r.get("type"), "はい" if r.get("required") else "いいえ",
-             r.get("constraints"), r.get("description")] for r in request]), ""]
+             r.get("constraints"), r.get("description")] for r in note["request"]]), ""]
     elif note.get("noRequest"):
         lines += ["リクエストなし。", ""]
-    for resp in responses or []:
+    for resp in note.get("responses") or []:
         lines += [f"**レスポンス（{resp.get('status')}）** {resp.get('description') or ''}".rstrip(), ""]
         if resp.get("fields"):
             lines += [table(["フィールド", "型", "説明"],
                             [[code(f["name"]), f.get("type"), f.get("description")] for f in resp["fields"]]), ""]
-    statuses = [(r.get("status"), r.get("description")) for r in responses or []]
+    statuses = [(r.get("status"), r.get("description")) for r in note.get("responses") or []]
     statuses += [(x.get("status"), x.get("condition")) for x in note.get("errors") or []]
     if statuses:
         lines += ["**ステータスコード**", "", table(["ステータス", "条件"], statuses), ""]
     if note.get("validation"):
         lines += ["**バリデーション**", "", table(["条件", "不正時"],
                                              [[v.get("rule"), v.get("onInvalid")] for v in note["validation"]]), ""]
-    if e["id"] not in ctx.excluded:
-        if not request and not note.get("noRequest"):
-            uv.add(code(title), "リクエストの形", "注釈未作成。ハンドラとスキーマ定義を読んで書く")
-        if not responses:
-            uv.add(code(title), "レスポンスの形", "注釈未作成。ハンドラと型定義を読んで書く")
+    if not note.get("request") and not note.get("noRequest") and e["id"] not in ctx.excluded:
+        uv.add(code(title), "リクエスト・レスポンスの形", "注釈未作成。ハンドラとスキーマ定義を読んで書く")
     if e.get("tables"):
         lines += [f"関連テーブル: {tables_cell(ctx, e['tables'])}", ""]
     uv.from_entity(ctx, e["id"], code(title))
@@ -872,8 +819,7 @@ def _transition_diagrams(ctx, screens):
         for a, b, how in edges:
             if a in members and b in members:
                 arrow = "-.->" if how == "redirect" else "-->"
-                label = "・".join(_NAV_LABEL.get(h, h) for h in how.split(",")) if how else "遷移"
-                lines.append(f"    {mm.ident(a, 's')} {arrow}|{mm.label(label)}| {mm.ident(b, 's')}")
+                lines.append(f"    {mm.ident(a, 's')} {arrow}|{mm.label(how or '遷移')}| {mm.ident(b, 's')}")
         out += [mm.block(lines), ""]
     isolated = [ctx.idx[s]["route"] for s in ids if not any(s in (a, b) for a, b, _ in edges)]
     if isolated:
@@ -882,10 +828,6 @@ def _transition_diagrams(ctx, screens):
 
 
 # --- integrations.md ------------------------------------------------------------
-
-_NAV_LABEL = {"link": "リンク", "push": "移動", "replace": "置き換えて移動", "navigate": "移動",
-              "redirect": "リダイレクト"}
-
 
 def render_integrations(ctx):
     m = ctx.model
@@ -902,11 +844,10 @@ def render_integrations(ctx):
                      or_unk(note.get("auth")), ", ".join(code(v) for v in i["envVars"]) or NA,
                      ctx.feature_names(i["id"])])
     lines += [table(["連携先", "方向", "プロトコル", "認証方式", "環境変数名", "関連する機能"], rows)
-              or "外部連携は見つからなかった（外部サービスの SDK の import と、外部ホストへの HTTP 呼び出しを探した）。", ""]
+              or "外部連携は見つからなかった。", ""]
     missing_summary(uv, "外部連携", m["integrations"], ctx)
 
-    if m["integrations"]:
-        lines += ["## 連携定義", ""]
+    lines += ["## 連携定義", ""]
     for i in m["integrations"]:
         note = ctx.note(i["id"])
         webhooks = [e for e in m["endpoints"] if e.get("webhook")
