@@ -1,225 +1,168 @@
 ---
 name: source-docs
-description: 既存プロジェクトのソースコードを読み、技術資料を生成する。3 つのモードがある。structure はシステム全体の構造（システム概要・DB 定義・ER 図・API 仕様・画面一覧・画面遷移図・外部連携）、flow は 1 機能の処理概要（入力・処理の要点・出力）、detail は 1 機能の詳細設計（シーケンス図・分岐条件・データへの影響）。「設計書を作って」「DB 定義書を出して」「API 仕様書を作って」「画面遷移図を作って」「この機能の処理概要を出して」「詳細設計を書いて」「/source-docs」で起動。Markdown を正本に出力し、HTML へも変換できる。ソースから確認できないことは書かず「未確認」として残す。既存プロジェクトの資料化・構造把握・設計書作成の話が出たら必ずこのスキルを使う。
+description: 既存プロジェクトのソースコードを解析し、システム全体（概要・機能一覧・DB・API・画面・外部連携）から、1 機能の処理概要・詳細設計まで辿れる資料を生成する。機能の入口は画面に限らず、Webhook・定期実行・キュー・イベント処理も機能として扱う。各記述がどのソースを根拠にしているかを追跡でき、コードにあるのに資料に無いもの（漏れ）を coverage で示す。「このプロジェクトの設計書を作って」「機能一覧を出して」「DB 定義書を出して」「API 仕様書を作って」「画面遷移図を作って」「外部連携を整理して」「〇〇機能の処理概要を出して」「〇〇機能の詳細設計を書いて」「資料の漏れを確認して」「/source-docs」で起動。Markdown を正本に出力し、HTML へも変換できる。ソースから確認できないことは書かず「未確認」として残す。既存プロジェクトの資料化・構造把握・設計書作成の話が出たら必ずこのスキルを使う。
 ---
 
 # source-docs
 
-対象プロジェクトのソースコードから、**読み手が構造と動きを掴める資料**を作る。
+対象プロジェクトのソースコードから、**システム全体 → 機能 → 入口 → API / DB / 外部連携 → 実装**
+まで辿れる資料を作る。
 
 **最重要要件 — ソースコードから確認できないことを事実として書かない。**
-分からなかったことは「未確認」と書き、資料末尾の未確認一覧に「調べた範囲」まで残す。
+分からなかったことは「未確認」とし、**調べた範囲**を残す。
 
-コードをそのまま並べた資料は不可。情報量を増やすこと自体を目的にしない。
+## 仕組み
 
-## モード
+```
+ソースコード ─ analyze ─▶ project-model.json（機械で確かめた事実・根拠つき）
+                                   │
+あなた（Claude）がコードを読む ─▶ annotations.json（意味づけ・根拠つき）
+                                   │
+                         check ─▶ render ─▶ Markdown / HTML / evidence.json / coverage.json
+```
 
-| モード | 単位 | 答える問い | 内部の処理 |
-| --- | --- | --- | --- |
-| `structure`（既定） | システム全体 | どんな構造か | 書かない |
-| `flow` | 1 機能 | 何を入れると何が出るか | 要点だけ |
-| `detail` | 1 機能 | どう動いているか | 書く |
-
-規則はモードごとに違う。`references/structure.md` / `flow.md` / `detail.md` を、
-**そのモードのものだけ**読む。共通規則は `references/writing.md`。
+- **画面・API・テーブル・外部連携・ジョブ・イベント・機能の候補は、解析器が決める。** 自分で数え直さない
+- **あなたが書くのは `annotations.json` だけ。** 機能の業務名、目的、入出力、詳細設計など、
+  コードを読まないと分からない意味をここに書く。**Markdown を直接書かない・直さない**
+  （直すと次の再生成で消え、資料どうしの整合も崩れる）
+- 資料はすべて同じモデルから描かれるので、資料間で数や名前が食い違わない
 
 ## コマンド
 
 ```
-/source-docs [mode] [--target <資料>] [--feature <機能名>]
-             [--format md|html|both] [--out <dir>] [--repo <path>]
+/source-docs [対象] [--feature <機能>] [--format md|html|both] [--out <dir>] [--repo <path>]
 ```
 
-| 引数 | 既定値 | 取りうる値 |
-| --- | --- | --- |
-| `mode` | `structure` | `structure` / `flow` / `detail` |
-| `--target` | `all` | `all` / `overview` / `db` / `api` / `screens` / `integrations` |
-| `--feature` | 対話で選ぶ | 機能名。`flow` / `detail` のみ |
-| `--format` | `md` | `md` / `html` / `both` |
-| `--out` | `docs/system` | 任意のディレクトリ |
-| `--repo` | カレントディレクトリ | 対象リポジトリ。複数リポは繰り返す |
-
-```
-/source-docs                                   # structure all
-/source-docs db                                # 互換指定。structure --target db
-/source-docs flow --feature "スナップ投稿"
-/source-docs detail --feature "記事作成" --format both
-/source-docs --repo ./frontend --repo ./backend
-```
-
-**第 1 引数の読み方。** `structure` / `flow` / `detail` ならモード。
-`all` / `overview` / `db` / `api` / `screens` / `integrations` の 6 つなら、
-互換指定として `structure --target <それ>` と解釈する。
-**どちらでもなければ、勝手に解釈せず、候補を示して聞き返す。**
-
-**プラグインなら起動名は `/source-docs:source-docs`**、手動で置いたなら `/source-docs`。
-
-## 生成する資料
-
-`structure` — `--out` 直下に置く。
-
-| ファイル | 含む資料 |
+| 対象 | 作るもの |
 | --- | --- |
-| `overview.md` | システム概要・全体構成図・技術スタック |
-| `database.md` | スキーマ一覧・テーブル定義・Enum・**ER 図**・ビュー |
-| `api.md` | 共通仕様・エンドポイント一覧・エンドポイント定義 |
-| `screens.md` | 画面一覧・**画面遷移図**・画面項目定義・画面-API-DB 関連 |
-| `integrations.md` | 連携先一覧・送信・受信・認証情報の所在 |
+| `structure`（既定） | 全体資料 6 本（overview / features / database / api / screens / integrations） |
+| `features` / `db` / `api` / `screens` / `integrations` / `overview` | その 1 本 |
+| `flow --feature <機能>` | 1 機能の処理概要 `flow/<機能>.md` |
+| `detail --feature <機能>` | 1 機能の詳細設計 `detail/<機能>.md` |
+| `coverage` | 資料の漏れの確認だけ（生成しない） |
 
-※ `api.md` はエンドポイントが多い場合、機能ごとに分割してよい（`api-orders.md` など）。
-**省略はしない。**
+既定値: `--format md` / `--out docs/system` / `--repo` はカレントディレクトリ（複数可）。
+**第 1 引数が上のどれでもなければ、勝手に解釈せず、候補を示して聞き返す。**
+自然な依頼は対応表で読み替える（「機能一覧を出して」→ `features`、「注文確定の詳細設計」→ `detail --feature 注文確定`）。
 
-`flow` は `flow-<機能名>.md`、`detail` は `detail-<機能名>.md`。
-**ファイル名に `/` と空白を入れない。** 機能名に含まれるなら `-` に置き換える。
-サブディレクトリを作らない（`md2html.py` が直下しか変換しないため）。
+プラグインなら起動名は `/source-docs:source-docs`、手動で置いたなら `/source-docs`。
 
-各資料の章の定義は `templates/` にある。
+## スクリプトの呼び方
 
----
+すべて 1 本のコマンドで行う。**このファイル（SKILL.md）があるディレクトリを `<skill-dir>` とする。**
 
-## スクリプトの実行
+```bash
+python3 <skill-dir>/scripts/source_docs.py <サブコマンド> [--out <dir>]
+```
 
-**このファイル（SKILL.md）が置かれているディレクトリを基準に呼ぶ。**
-以下では `<skill-dir>` と書く。実行時にその実パスへ置き換える。
+- 利用者の作業ディレクトリからの相対パス（`python3 scripts/...`）で呼ばない
+- **Windows では `python3` が無いことがある。** 動かなければ `python`、それも無ければ `py`
 
-- プラグイン — `~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/skills/source-docs/`
-- 個人スキル — `~/.claude/skills/source-docs/`
-- プロジェクトスキル — `<project>/.claude/skills/source-docs/`
-
-**利用者の作業ディレクトリからの相対パスで呼ばない。** `python3 scripts/inventory.py`
-と打つと、対象リポジトリ直下の `scripts/` を探して失敗する。
+| サブコマンド | 役割 |
+| --- | --- |
+| `analyze --repo <path>` | 解析して Project Model を書く。機能の候補も出す |
+| `features` / `show <ID>` | 機能の一覧 / 1 つの実体の中身・関係・根拠 |
+| `scaffold --feature <機能> --kind detail\|flow --write` | 詳細設計・処理概要の注釈の雛形を足す |
+| `check` | 注釈を検査する |
+| `render [--only a,b] [--feature X --kind detail] [--format both]` | 資料を書く。機密検出と coverage も走る |
+| `coverage` / `verify` | コード → 資料の漏れ / 資料 → コードの実在 |
+| `secrets --doc <path>` | 機密の検出 |
 
 ## 開かないファイル
 
 **このスキルは他人のリポジトリを読む。認証情報が入りうるファイルは開かない。**
+解析器はこれらを最初から除外する。**Read や Grep で自分で開くときも同じ規則を守る。**
 
 | 対象 | 例 |
 | --- | --- |
 | 環境変数の実ファイル | `.env` / `.env.local` / `.env.production` |
 | 鍵そのもの | `*.pem` / `*.key` / `*.p12` / `*.jks` / `id_rsa` |
-| 認証情報ファイル | `credentials.json` / `service-account.json` / `.npmrc` / `terraform.tfvars` |
+| 認証情報ファイル | `credentials.json` / `service-account.json` / `.npmrc` / `.netrc` |
 | ディレクトリごと | `.ssh/` / `.aws/` / `.gnupg/` / `.kube/` / `credentials/` / `secrets/` |
+| シンボリックリンク | 名前が `schema.ts` でもリンク先は分からない |
 
-同梱スクリプトは `scripts/_secure.py` の判定でこれらを最初から除外する。
-**Read や Grep で自分で開くときも同じ規則を守る。**
+例外は `.env.example` などのテンプレート。**変数名だけを見る。値は読まない・書かない。**
+値らしきものが書かれていたら、その事実を人間に伝える。
 
-例外は `.env.example` / `.env.sample` / `.env.template`。外部連携の変数名を知るために読む。
-**ただし、開けば値も見える。** 次を守る。
+## 手順
 
-- 変数名の一覧を得たら**それ以上読まない**
-- 値を資料に書かない。`=` の右側は転記しない
-- 値らしきものが書かれていたら、その事実を人間に伝える
-
-## 00 スタック判定
-
-`references/detect.md` を読む。
+### 00 解析
 
 ```bash
-python3 <skill-dir>/scripts/inventory.py --repo <path> [--repo <path>...]
+python3 <skill-dir>/scripts/source_docs.py analyze --repo <path> [--repo <path>...] --out <out>
 ```
 
-**判定結果を鵜呑みにしない。**「判定できず」が出た区分は manifest を直接開いて確かめる。
-`references/stacks/` に該当するファイルがあれば読む。**推測でフレームワーク名を書かない。**
+既に `<out>/.source-docs/annotations.json` があれば**消さない。** 再解析は注釈を保ったまま事実だけ更新する。
 
-## 01 対象の列挙
+### 人間ゲート ①
 
-同じ `inventory.py` の出力から、schema / route / screen / integration の候補と件数を得る。
-候補は足場であって答えではない。候補に挙がらない場所にも入口はある。
+`analyze` の出力から次を提示し、**対象を人間に確定してもらう。**
 
-`flow` / `detail` のときは、ここで**機能の候補**を作る。
+- スタックの判定結果。**「判定できず」の区分と、UNSUPPORTED（読み取れなかった箇所）は必ず伝える**
+- 件数（画面・API・テーブル・外部連携・ジョブ・入口）
+- 機能の候補一覧。**画面を持たない機能（Webhook・定期実行・キュー・イベント処理）も候補にある**ことを示す
+- `flow` / `detail` なら、どの候補が依頼の機能か。名前で見つからなければ候補から選んでもらう。
+  **機能の業務名はコードの命名からは決まらない。** 推測で当てはめない
 
-1. `--out` に `screens.md` があれば、その「画面-API-DB 関連」表を候補にする。
-   **冒頭のコミットハッシュを現在の HEAD と比べ、古ければその旨を添える**
-2. 無ければ `inventory.py` の screen / route 候補から、画面名・ルート名を候補に並べる
-3. どちらの場合も、**画面を持たない機能**（Webhook・定期処理・ライフサイクル処理）は
-   候補から漏れる。その可能性を人間に伝える
+### 01 注釈を書く
 
-`--feature` で名前が渡されていれば、対応する入口を探し、**見つけた起点を提示して確認を取る。**
-見つからなければ候補一覧に戻す。
+`references/annotations.md`（書式）と `references/writing.md`（共通規則）を読む。
+加えて対象ごとの規則を、**その対象のものだけ**読む。
 
-## 人間ゲート ①
+| 対象 | 読む規則 | 書く場所 |
+| --- | --- | --- |
+| 全体資料 | `references/structure.md` | `system` `applications` `api` `features` `entities` `exclusions` |
+| 処理概要 | `references/flow.md` | `flows` |
+| 詳細設計 | `references/detail.md` | `details`（`scaffold --write` で雛形を足してから埋める） |
 
-以下を提示し、**対象を人間に確定してもらう。**
+- `show <ID>` で、実体の定義場所と関係の根拠（ファイルと行）を得てから、そのファイルを**実際に開いて読む**
+- 書いたことには `evidence`（根拠のファイル）を付ける。**分からなければ書かずに `unverified` に送り、`searched`（調べた範囲）を書く**
+- 全体資料を作るときは、**まとめて全部書かない。** `database` の分から始め、ゲート ② で型を決める
 
-- スタックの判定結果。**判定できなかった区分は必ず伝える**
-- `structure` なら種別ごとの件数と、多い場合の分割案
-- `flow` / `detail` なら機能の候補一覧
-
-ここで判定の誤りが直る。機能名はコードの命名からは確定できないので、必ず選ばせる。
-
-## 02 資料を生成
-
-`structure` で `--target all` のときは、**まとめて全資料を生成しない。**
-1 本書いて人間に見せ、指摘を型に反映してから次へ進む。`database.md` から始める。
-
-1. そのモードの `references/` を読む（`structure.md` なら加えて `db.md` など）
-2. `templates/` の該当ファイルと `references/writing.md` に従って書く
-3. **実装コードを実際に開いて読む。** 既存 docs の要約で済ませない。docs の数値は
-   古いことがあるので実装値で上書きする
-4. 出力先は `--out` 配下
-
-続けて照合と機密検出を**両方**走らせる。片方だけで先へ進まない。
+### 02 検査と生成
 
 ```bash
-python3 <skill-dir>/scripts/verify.py --doc <生成した md> --repo <path> --mode <mode>
-python3 <skill-dir>/scripts/secrets.py --doc <生成した md>
+python3 <skill-dir>/scripts/source_docs.py check --out <out>
+python3 <skill-dir>/scripts/source_docs.py render --out <out> [--only database] [--format both]
 ```
 
-- 照合が不一致 → 指摘を材料に**再生成する。リトライは 1 回だけ**
-- 2 回目も不一致 → その項目を「未確認」として残し、理由を書いて先へ進む
-- **機密を検出 → リトライせず、その場で人間に見せる。** 誤検知が出るので、
-  伏せ字にする判断を機械にさせない
+- `check` の ERROR は全部直してから `render` する。`render` は誤りがあると書き出さない
+- **機密を検出したら、リトライせずその場で人間に見せる。** 伏せ字にする判断を機械にさせない
+  （注釈に認証情報らしき値があると、`render` は書き出さずに止まる）
 
-## 人間ゲート ②
+### 人間ゲート ②
 
-生成した md のパスと内容を提示する。人間が見るのは**章構成・粒度・読みやすさ**。
+生成した md のパスと内容を提示する。人間が見るのは**章構成・粒度・読みやすさ・名前の妥当性**。
+指摘は注釈に反映して再生成する。全体資料なら、ここで決めた書き方を残りにも効かせる。
 
-- `structure` で複数資料を作るとき — ここで型を決める。指摘は**規則として記録し**、
-  以降の資料に効かせる。文章そのものは保護しない
-- `flow` / `detail` で 1 本だけのとき — ここが最終承認。指摘を反映して 05 へ進む
-
-## 03 残りの資料を生成
-
-02 と同じ手順を、残りの資料に対して繰り返す。ゲート ② で得た規則を適用する。
-**照合と機密検出は 1 資料ごとに走らせる。** 最後にまとめて 1 回ではない。
-
-資料の量が多い場合、1 資料の中でも分割して読む。
-API が 100 本を超えるような場合は、ディレクトリ単位で読んで統合し、1 本の md にする。
-
-## 04 HTML 変換
-
-`--format` が `html` または `both` のときだけ実行する。
+### 03 照合と完了報告
 
 ```bash
-python3 <skill-dir>/scripts/md2html.py --src <out> --out <out>/html
+python3 <skill-dir>/scripts/source_docs.py verify --out <out>
+python3 <skill-dir>/scripts/source_docs.py coverage --out <out>
 ```
 
-`index.html` と資料ごとのページ、共通 CSS が出る。Mermaid は CDN のスクリプトで
-描画される（SRI 付き）。**外部スクリプトを一切読み込みたくない場合は `--no-mermaid`**。
+`verify` の不一致は注釈を直して再生成する（1 回まで）。2 回目も残れば未確認として理由を書く。
 
-## 05 完了報告
-
-必ず出すもの。
+完了報告で必ず出すもの。
 
 1. 生成したファイルの一覧
-2. **未確認一覧** — 各資料の末尾にあるものを集約して提示する
-3. 機密検出の結果 — 検出が 0 件だったことも明示する
+2. **未確認一覧** — 各資料末尾のものを集約する
+3. 機密検出の結果 — 0 件だったことも明示する
+4. coverage — 種別ごとの documented / detected と、undocumented・unresolved・unsupported・excluded
+5. 名前未確定のまま残った機能の数
 
 ---
 
 ## このスキルの限界（人間に伝えるべきこと）
 
-- **漏れゼロは機械で保証できない。** バッチや Webhook は書き方がプロジェクト次第で、
-  独自構造なら取りこぼしうる
-- **機械照合は作文しか検出できない。** 「実在しないエンドポイントを書いた」は防げるが、
-  「分岐条件の説明が実装と違う」は検出できない。`detail` ほどこの差が効く
-- **機密検出は誤検知が出る。** だから自動で伏せ字にせず、常に人間の判断に回す
-- **未検証のスタックでは精度が落ちる。** `references/stacks/` に無ければ読み取れない
+- **検出は書き方に依存する。** 解析器が知らない書き方の API・バッチは候補に出ない。
+  出なかったものは UNSUPPORTED と coverage の unresolved に現れる範囲でしか分からない
+- **関係は import を 3 段まで辿った範囲。** DI コンテナや動的な呼び出しは辿れない
+- **機械照合は作文しか検出できない。** 「分岐条件の説明が実装と違う」は検出できない。`detail` ほど効く
+- **機密検出は誤検知も見落としもある。** だから自動で伏せ字にせず、常に人間の判断に回す
 
 ## 未実装
 
-差分更新（Git 差分で変更箇所だけ再生成）は未実装。求められたら
-「未実装。全体の再生成で対応する」と伝える。**勝手に実装しない。**
-各 md 冒頭のコミットハッシュが、その前提として置いてある。
-
-Notion・Excel への出力もこのスキルには含まない。md を変換する別スキルの担当。
+差分だけの再生成は無い（`analyze` → `render` の全体再生成で対応する。注釈は保たれる）。
+Notion・Excel への出力は含まない。**頼まれても勝手に実装しない。**

@@ -1,0 +1,144 @@
+{
+  "schema": "source-docs/annotations",
+  "version": 1,
+  "system": {
+    "name": "サンプル EC",
+    "summary": "商品を選んで注文し、Stripe で決済するサンプルの EC サイト。",
+    "users": ["購入者"],
+    "evidence": ["src/app/products/page.tsx", "src/app/checkout/page.tsx"],
+    "unverified": [
+      {"item": "管理者向けの画面の有無", "searched": "src/app 配下を全件確認したが管理画面のルートは無い"}
+    ]
+  },
+  "applications": {
+    "app:shop": {"responsibility": "画面・API・定期処理・キュー処理を 1 つの Next.js アプリで持つ", "evidence": ["package.json"]}
+  },
+  "api": {
+    "auth": "認証なし（認証を行うミドルウェアがコード上に無い）",
+    "errorFormat": "{ error: string } を JSON で返す",
+    "evidence": ["src/app/api/orders/route.ts:6"],
+    "unverified": [
+      {"item": "ページング", "searched": "GET /api/products のハンドラにクエリの読み取りが無い"}
+    ]
+  },
+  "features": [
+    {"id": "feature:order-confirm", "name": "注文確定", "summary": "購入者が商品を注文し、Stripe の支払いを作る。",
+     "entrypoints": ["entrypoint:screen:/checkout", "entrypoint:http:POST /api/orders"],
+     "evidence": ["src/app/checkout/page.tsx", "src/services/orders.ts"]},
+    {"id": "feature:webhook-post-api-webhooks-stripe", "name": "決済結果の受信",
+     "summary": "Stripe から支払い成功の通知を受け、注文を支払い済みにする。"}
+  ],
+  "entities": {
+    "endpoint:POST /api/orders": {
+      "summary": "注文を作る",
+      "auth": "不要",
+      "request": [
+        {"in": "Body", "name": "productId", "type": "number", "required": true, "constraints": "必須", "description": "注文する商品"}
+      ],
+      "responses": [
+        {"status": 201, "description": "作った注文を返す", "fields": [{"name": "id", "type": "number", "description": "注文 ID"}]}
+      ],
+      "errors": [{"status": 400, "condition": "productId が無い"}],
+      "evidence": ["src/app/api/orders/route.ts"]
+    },
+    "screen:/checkout": {
+      "name": "注文確認",
+      "summary": "注文を確定する",
+      "auth": "不要",
+      "actions": [{"label": "注文を確定する", "result": "注文を作り、商品一覧へ戻る", "api": "endpoint:POST /api/orders", "to": "screen:/products"}],
+      "evidence": ["src/app/checkout/page.tsx"]
+    },
+    "table:orders": {"summary": "注文", "columns": {"status": "支払いの状態"}, "evidence": ["src/db/schema.ts"]},
+    "integration:stripe": {
+      "purpose": "決済",
+      "protocol": "HTTPS（SDK）",
+      "auth": "シークレットキー（環境変数）",
+      "dataSent": "金額・通貨",
+      "dataReceived": "PaymentIntent の ID",
+      "retry": "SDK の既定のまま（コードで指定していない）",
+      "evidence": ["src/lib/stripe.ts", "src/services/orders.ts"],
+      "unverified": [
+        {"item": "タイムアウト", "searched": "src/lib/stripe.ts の Stripe 生成箇所に timeout 指定が無い"}
+      ]
+    }
+  },
+  "exclusions": [
+    {"id": "endpoint:GET /api/health", "reason": "死活監視用で、利用者向けの機能ではない"}
+  ],
+  "flows": {
+    "feature:order-confirm": {
+      "summary": "商品 ID を受け取り、注文と支払いを作る。",
+      "inputs": [{"name": "productId", "description": "注文する商品"}],
+      "steps": ["商品 ID があるか確かめる。無ければ 400 を返す", "Stripe に支払いを作る", "注文を保存する", "領収書の送信をキューに積む"],
+      "outputs": [{"name": "注文", "description": "作った注文"}],
+      "failures": [{"condition": "商品 ID が無い", "result": "400 が返る"}],
+      "evidence": ["src/app/api/orders/route.ts", "src/services/orders.ts"]
+    }
+  },
+  "details": {
+    "feature:order-confirm": {
+      "summary": "購入者が注文を確定すると、Stripe に支払いを作り、注文を保存して領収書の送信を予約する。",
+      "start": "注文確認画面のボタン",
+      "end": "注文を返して商品一覧へ戻る",
+      "preconditions": [
+        {"kind": "authentication", "description": "認証は無い", "evidence": ["src/app/api/orders/route.ts"]}
+      ],
+      "inputs": [{"name": "productId", "type": "number", "required": true, "constraints": "必須", "source": "リクエストボディ"}],
+      "validations": [{"condition": "productId が無い", "onInvalid": "400 を返す", "userVisible": "エラー"}],
+      "sequence": {
+        "participants": [
+          {"id": "user", "label": "購入者", "kind": "user"},
+          {"id": "screen", "label": "注文確認画面", "kind": "screen"},
+          {"id": "api", "label": "POST /api/orders", "kind": "backend"},
+          {"id": "stripe", "label": "Stripe", "kind": "external"},
+          {"id": "db", "label": "DB", "kind": "db"},
+          {"id": "queue", "label": "receipts キュー", "kind": "queue"}
+        ],
+        "steps": [
+          {"from": "user", "to": "screen", "message": "注文を確定する"},
+          {"from": "screen", "to": "api", "message": "POST /api/orders"},
+          {"alt": [
+            {"condition": "productId が無い", "steps": [{"from": "api", "to": "screen", "message": "400", "kind": "return"}]},
+            {"condition": "productId がある", "steps": [
+              {"from": "api", "to": "stripe", "message": "支払いを作る"},
+              {"from": "stripe", "to": "api", "message": "PaymentIntent", "kind": "return"},
+              {"from": "api", "to": "db", "message": "orders に INSERT"},
+              {"from": "api", "to": "queue", "message": "send-receipt", "kind": "async"},
+              {"from": "api", "to": "screen", "message": "201 注文", "kind": "return"}
+            ]}
+          ]}
+        ]
+      },
+      "branches": [{"condition": "productId が無い", "result": "処理を止める", "status": 400, "userVisible": "エラー"}],
+      "dataImpact": [
+        {"table": "table:orders", "operation": "CREATE", "columns": ["product_id", "payment_intent_id"], "meaning": "注文を作る", "evidence": ["src/services/orders.ts"]}
+      ],
+      "transaction": {"status": "not-implemented", "evidence": ["src/services/orders.ts"]},
+      "idempotency": {"status": "unverified", "searched": "src/services/orders.ts と route.ts に冪等キーの扱いが無い。Stripe 側の設定は見ていない"},
+      "stateTransition": {
+        "entity": "orders.status",
+        "states": ["pending", "paid", "cancelled"],
+        "transitions": [
+          {"from": "[*]", "to": "pending", "trigger": "注文確定"},
+          {"from": "pending", "to": "paid", "trigger": "決済結果の受信"},
+          {"from": "pending", "to": "cancelled", "trigger": "（呼び出し元は未確認）"}
+        ],
+        "evidence": ["src/db/schema.ts", "src/app/api/webhooks/stripe/route.ts"]
+      },
+      "externalCalls": [
+        {"integration": "integration:stripe", "request": "金額・通貨", "response": "PaymentIntent", "retry": "SDK の既定", "evidence": ["src/services/orders.ts"]}
+      ],
+      "sideEffects": [
+        {"kind": "queue", "description": "領収書の送信を receipts キューに積む", "evidence": ["src/services/orders.ts"]}
+      ],
+      "files": [
+        {"role": "画面", "path": "src/app/checkout/page.tsx"},
+        {"role": "入口", "path": "src/app/api/orders/route.ts"},
+        {"role": "保存", "path": "src/services/orders.ts"}
+      ],
+      "unverified": [
+        {"item": "Stripe 呼び出しが失敗したときの扱い", "searched": "src/services/orders.ts に try/catch が無い。呼び出し元の route.ts にも無い"}
+      ]
+    }
+  }
+}

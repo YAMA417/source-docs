@@ -1,0 +1,7 @@
+{
+  // コメント付きの tsconfig も読めること
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": { "@/*": ["./src/*"] },
+  }
+}

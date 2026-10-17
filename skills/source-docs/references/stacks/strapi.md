@@ -40,10 +40,13 @@ PUT    /api/<複数形>/:id
 DELETE /api/<複数形>/:id
 ```
 
-**ルート定義ファイルだけを見ると、これらを取りこぼす。** content-type が存在する時点で
-上記が存在するものとして一覧に載せ、「Strapi の自動生成」と注記する。
+解析器は `src/api/<name>/routes/` の `createCoreRouter('api::<name>.<name>')` を見て、上の 5 本を
+規約どおりに作る（`only` / `except` も反映する。根拠の rule に `convention` が付く）。
+**ルートファイルが無い content-type は API を作らず、UNSUPPORTED として報告する。**
+公開されているかをコードから確定できないため。そのときは人間に確認を取る。
 
-`src/api/<name>/routes/*.js` にカスタムルートがあれば、それは追加のエンドポイント。
+`src/api/<name>/routes/*.js` にカスタムルート（`routes: [{ method, path, handler }]`）があれば、
+それは追加のエンドポイント。パスには `/api` が前に付く。
 
 ## 認可
 

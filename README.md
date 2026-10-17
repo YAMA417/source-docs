@@ -1,40 +1,49 @@
 # source-docs
 
-既存プロジェクトのソースコードを読み、**技術資料を生成する Claude Code スキル**。
+**既存コードを解析し、システム全体の構造・機能・DB・API・画面・外部連携を資料化し、
+さらに 1 機能単位で詳細設計まで掘り下げられる Claude Code Plugin。**
 
-コードの羅列や要約ではなく、資料を読むことで構造と動きが分かる状態を目指す。
-**ソースコードから確認できないことは書かず、「未確認」として残す。**
+単なるコード要約ではない。
 
-## 3 つのモード
+```
+System → Feature → Entrypoint → Screen / API / DB / Integration → Implementation
+```
 
-| モード | 単位 | 答える問い | 出力 |
-| --- | --- | --- | --- |
-| `structure`（既定） | システム全体 | どんな構造か | `overview.md` ほか 5 本 |
-| `flow` | 1 機能 | 何を入れると何が出るか | `flow-<機能名>.md` |
-| `detail` | 1 機能 | どう動いているか | `detail-<機能名>.md` |
+まで辿れる資料を、根拠のソースと網羅率（coverage）つきで生成する。
+**ソースコードから確認できないことは書かず、「未確認」として調べた範囲とともに残す。**
 
-**何を書くかがモードで変わる。** `structure` は外から見えるもの（リクエスト・レスポンス・
-テーブルの構造・画面遷移）だけを書き、内部の処理は書かない。`detail` は逆に、
-呼び出しの順序・分岐条件・トランザクションの境界まで書く。`flow` はその中間で、
-処理の要点を 5 行以内にまとめる。
+## 何ができるか
 
-機密を書かない・推測で埋めないという規則は、**モードによらず変わらない。**
+初見のプロジェクトで実行すると、次の状態になる。
 
-### structure が生成する資料
+1. **システム全体を俯瞰できる** — `overview.md` が全体構成図・アプリケーションの責務・技術スタック・各資料への入口になる
+2. **どんな機能があるか分かる** — `features.md` が機能を一覧する。**入口は画面に限らない**（Webhook・定期実行・キュー・イベント処理・ワーカー・CLI・DB トリガも機能として扱う）
+3. **機能が画面・API・DB・外部連携とどうつながるか分かる** — 機能ごとに入口・API・テーブル操作（CRUD）・外部連携・ジョブ・イベントを示す
+4. **1 機能を詳細設計まで掘り下げられる** — シーケンス図・分岐・データへの影響・トランザクション・冪等性・状態遷移・副作用
+5. **どのソースを根拠にしたか追跡できる** — `evidence.json` が全項目の根拠（ファイルと行）を持つ
+6. **どこまで資料化できたか分かる** — `coverage` が「コードにあるのに資料に無いもの」を種別ごとに出す
 
-| ファイル | 含む資料 |
-| --- | --- |
-| `overview.md` | システム概要・全体構成図・技術スタック |
-| `database.md` | スキーマ一覧・テーブル定義・Enum・**ER 図**・ビュー |
-| `api.md` | 共通仕様・エンドポイント一覧・エンドポイント定義 |
-| `screens.md` | 画面一覧・**画面遷移図**・画面-API-DB 関連 |
-| `integrations.md` | 連携先一覧・送信・受信・認証情報の所在 |
+## 出力
 
-図はすべて Mermaid。Markdown が正本で、HTML へも変換できる。
+```
+docs/system/
+  overview.md        システム概要（入口）
+  features.md        機能一覧と、機能ごとのつながり
+  database.md        DB 定義・ER 図
+  api.md             API 仕様
+  screens.md         画面一覧・画面遷移図・画面項目
+  integrations.md    外部連携
+  flow/<機能>.md     1 機能の処理概要
+  detail/<機能>.md   1 機能の詳細設計
+  html/              上の資料の HTML 版（ページ間ナビゲーションつき）
+  .source-docs/
+    project-model.json   機械で取り出した事実（全資料の元データ）
+    annotations.json     Claude が書いた意味づけ（根拠つき）
+    evidence.json        項目ごとの根拠の索引
+    coverage.json        網羅率
+```
 
-各資料の章の定義は `skills/source-docs/templates/`、書き方の規則は
-`skills/source-docs/references/`（共通は `writing.md`、モード別は `structure.md` /
-`flow.md` / `detail.md`）。
+図はすべて Mermaid。Markdown が人間の読む正本で、HTML へも変換できる。
 
 ## インストール
 
@@ -45,216 +54,245 @@
 /plugin install source-docs@source-docs
 ```
 
-**起動名は `/source-docs:source-docs`。** プラグインのスキルは
-`plugin-name:skill-name` の名前空間を持つため、`:` が入る。
-「DB 定義書を作って」「この機能の詳細設計を書いて」のような自然な依頼でも起動する。
+**起動名は `/source-docs:source-docs`。** 自然な依頼（「このプロジェクトの設計書を作って」など）でも起動する。
+更新は `/plugin marketplace update source-docs` のあと `claude plugin update source-docs@source-docs`。
 
-更新はこの 2 つ。
+### 手動で置く
 
-```
-/plugin marketplace update source-docs
-claude plugin update source-docs@source-docs
-```
-
-**この方法を推す理由は、更新が届くこと。** 手動でコピーする方法だと、
-こちらが直しても入れた人には伝わらない。
-
-### 手動で置く（プラグインを使わない場合）
-
-`skills/source-docs/` の中身をそのままコピーする。起動名は `/source-docs`。
-
-```bash
-git clone https://github.com/YAMA417/source-docs.git
-
-# 全プロジェクトで使う
-mkdir -p ~/.claude/skills/source-docs
-cp -r source-docs/skills/source-docs/. ~/.claude/skills/source-docs/
-
-# 特定のリポジトリだけで使う
-mkdir -p <project>/.claude/skills/source-docs
-cp -r source-docs/skills/source-docs/. <project>/.claude/skills/source-docs/
-```
-
-後者は `.claude/skills/` ごと commit すれば、clone した人が**何もしなくても使える。**
-引き換えに、更新は各自がコピーし直すことになる。
+`skills/source-docs/` の中身を `~/.claude/skills/source-docs/`（全プロジェクト）か
+`<project>/.claude/skills/source-docs/`（そのリポジトリだけ）にコピーする。起動名は `/source-docs`。
+手動の場合、更新は各自がコピーし直す。
 
 ## 使い方
 
 ```
-/source-docs [mode] [--target <資料>] [--feature <機能名>]
-             [--format md|html|both] [--out <dir>] [--repo <path>]
+/source-docs [対象] [--feature <機能>] [--format md|html|both] [--out <dir>] [--repo <path>]
 ```
 
-| 引数 | 既定値 | 取りうる値 |
+| 依頼の例 | 対象 | 作るもの |
 | --- | --- | --- |
-| `mode` | `structure` | `structure` / `flow` / `detail` |
-| `--target` | `all` | `all` / `overview` / `db` / `api` / `screens` / `integrations` |
-| `--feature` | 対話で選ぶ | 機能名。`flow` / `detail` のみ |
-| `--format` | `md` | `md` / `html` / `both` |
-| `--out` | `docs/system` | 任意のディレクトリ |
-| `--repo` | カレントディレクトリ | 対象リポジトリ。複数リポは繰り返す |
+| 「このプロジェクトの設計書を作って」 | `structure`（既定） | 全体資料 6 本 |
+| 「機能一覧を出して」 | `features` | `features.md` |
+| 「DB 定義書を出して」 / 「API 仕様書を作って」 | `db` / `api` | その 1 本 |
+| 「画面遷移図を作って」 / 「外部連携を整理して」 | `screens` / `integrations` | その 1 本 |
+| 「注文確定の処理概要を出して」 | `flow --feature 注文確定` | `flow/<機能>.md` |
+| 「注文確定機能の詳細設計を書いて」 | `detail --feature 注文確定` | `detail/<機能>.md` |
+| 「資料の漏れを確認して」 | `coverage` | 網羅率の報告 |
 
+人間が止める場所は 2 か所。① 解析結果（スタック・件数・機能の候補・読み取れなかった箇所）を見て対象を決める。
+② 生成した資料を読み、名前・粒度・書き方を直させる。
+
+## 仕組み
+
+```mermaid
+flowchart LR
+    src["ソースコード"] -->|adapters| model["Project Model"]
+    model -->|relations / features| model
+    claude["Claude がコードを読む"] -->|根拠つきで書く| ann["annotations.json"]
+    model --> check["check（参照・根拠・機密の検査）"]
+    ann --> check
+    check --> render["render"]
+    render --> md["Markdown"]
+    render --> html["HTML"]
+    render --> json["evidence.json / coverage.json"]
+    md -->|verify: docs → source| model
+    model -->|coverage: source → docs| md
 ```
-/source-docs                                   # 全体の構造を一式
-/source-docs db                                # 互換指定。structure --target db
-/source-docs flow --feature "スナップ投稿"      # 1 機能の処理概要
-/source-docs detail --feature "記事作成"        # 1 機能の詳細設計
-/source-docs --format both --out docs/architecture
-/source-docs --repo ./frontend --repo ./backend
-```
 
-第 1 引数がモード名でも既存の資料名でもない場合、**勝手に解釈せず候補を示して聞き返す。**
-機能名は `--feature` に渡す。
+役割は 2 つに分かれる。
 
-## ワークフロー
-
-人間が止める場所は 2 か所だけ。
-
-| # | 段階 | 内容 |
+| | 書くもの | 書き手 |
 | --- | --- | --- |
-| 00 | スタック判定 | manifest から、フロント / バック / ORM / DB を判定する |
-| 01 | 列挙 | 入口とスキーマの候補、`flow` / `detail` なら機能の候補を出す |
-| — | **ゲート 1** | 判定結果と候補を提示し、人間が対象を確定する |
-| 02 | 生成 | 実装を読んで md を書き、識別子の実在を照合する |
-| — | **ゲート 2** | 人間が読む。`structure` なら型の確定、1 本だけなら最終承認 |
-| 03 | 残り資料 | 同じ手順で残りを生成・照合する |
-| 04 | HTML 変換 | `--format` に html があれば実行 |
-| 05 | 完了報告 | 生成ファイル一覧と**未確認一覧**を出す |
+| **Project Model** | 画面・API・テーブル（カラム・制約）・外部連携・ジョブ・イベント・入口・機能の候補・それらの関係と根拠 | 解析器（機械） |
+| **annotations.json** | 機能の業務名・目的・入出力・画面項目・連携の目的・詳細設計 | Claude（コードを読み、根拠を付けて書く） |
 
-`structure` で全資料を作るとき、まとめて生成してから見せない。
-1 本目で型を決めないと、同じ指摘を資料の本数ぶん受けることになる。
+**Markdown は描画結果であって、データベースではない。** 資料はすべて同じモデルから描くので、
+API 一覧・機能一覧・画面一覧で数や名前が食い違わない。Claude が資料ごとに同じことを推測し直す構造を避けている。
 
-**機能の特定は人間が選ぶ。** `flow` / `detail` の候補は、既存の `screens.md` の
-画面-API-DB 関連表があればそこから、無ければ `inventory.py` の画面・ルート候補から出す。
-「注文確定」のような業務上の機能名はコードの命名からは決まらないので、機械に決めさせない。
-画面を持たない機能（Webhook・定期処理）は候補に出にくい点も、その場で伝える。
+### 中核とアダプタの分離
 
-## 同梱するスクリプト
+フレームワーク固有の知識は `scripts/sdocs/adapters/` だけが持つ。中核（モデル・関係の解決・機能の組み立て・
+検査・描画・coverage）はフレームワーク名を知らない。
 
-| スクリプト | 役割 |
+| モジュール | 役割 |
 | --- | --- |
-| `inventory.py` | スタック判定と、読むべきファイルの候補列挙 |
-| `verify.py` | 資料に書いた識別子がソースに実在するか照合（`--mode` で対象が変わる） |
-| `secrets.py` | 資料に機密が混ざっていないか検査 |
-| `md2html.py` | md を複数ページの HTML に変換 |
+| `adapters/` | フレームワーク・言語ごとの検出器（`collect` で実体を宣言、`usages` でコード片が使うものを拾う、`imports` で辿るファイルを返す） |
+| `analyzer.py` | アプリケーションの発見とアダプタの実行 |
+| `model.py` | Project Model の組み立て・ID の採番・スキーマ検査 |
+| `relations.py` | 入口のコード片から import を 3 段まで辿り、テーブル操作・API 呼び出し・遷移・外部連携・イベント発行・キュー投入を結び付ける |
+| `features.py` | 入口から機能の候補を作り、注釈で名前付け・束ね直しをする |
+| `annotations.py` | 注釈の検査 |
+| `render/` | Markdown・Mermaid・HTML・evidence の描画 |
+| `coverage.py` / `verify.py` | source → docs の網羅率 / docs → source の実在確認 |
+| `security.py` / `secrets.py` | 開かないファイルの判定 / 機密の検出 |
 
-すべて単体で実行できる。スキルを使わず CI に組み込むこともできる。
+## Project Model
 
-置き場所は入れ方で変わる。以下では `<skill-dir>` と書く。
+`schema: "source-docs/project-model"`、`version: 1`。JSON として機械処理できる。
 
-- プラグイン — `~/.claude/plugins/cache/source-docs/source-docs/<version>/skills/source-docs`
-- 手動 — `~/.claude/skills/source-docs` または `<project>/.claude/skills/source-docs`
+| キー | 内容 |
+| --- | --- |
+| `generatedCommit` | 解析した HEAD（`.git` から直接読む） |
+| `repositories` / `applications` | リポジトリと、manifest のあるディレクトリごとのアプリケーション（スタック・種別・適用した解析器） |
+| `entrypoints` | 実行の起点。種別と、対象（画面・API・ジョブ・イベント・テーブル）への参照 |
+| `screens` / `endpoints` / `tables` / `enums` / `sequences` | 実体 |
+| `integrations` / `jobs` / `events` / `commands` | 実体 |
+| `features` | 機能（候補）。入口・画面・API・テーブル操作・外部連携・ジョブ・イベント・実装ファイル・根拠・未解決 |
+| `unsupported` | 解析器が読み取れなかった箇所（パスが変数、メソッドの export が無い…） |
 
-```bash
-python3 <skill-dir>/scripts/inventory.py --repo .
-python3 <skill-dir>/scripts/verify.py --doc docs/system/database.md --repo .
-python3 <skill-dir>/scripts/verify.py --doc docs/system/detail-記事作成.md --repo . --mode detail
-python3 <skill-dir>/scripts/secrets.py --doc docs/system/database.md
-python3 <skill-dir>/scripts/md2html.py --src docs/system --out docs/system/html
+各実体は一意な `id`（`endpoint:POST /api/orders`、`table:orders` など。アプリをまたいで同じ名前があれば
+`@アプリ` が付く）、`status`（`detected` / `unresolved`）、`unresolved`（理由）、`evidence`（根拠のファイル・行・規則）を持つ。
+関係（`tables` `integrations` `calls` `links` `publishes` `enqueues`）にもそれぞれ根拠が付く。
 
-# 外部スクリプトを読み込みたくない場合（図は描画されずコードのまま残る）
-python3 <skill-dir>/scripts/md2html.py --src docs/system --out docs/system/html --no-mermaid
+## 機能（Feature）と入口（Entrypoint）
 
-# 機密検出の値を実際に見る（既定は伏せる）
-python3 <skill-dir>/scripts/secrets.py --doc docs/system/api.md --reveal
+入口は画面・API より上位の概念として扱う。
+
+```
+Entrypoint
+├─ screen          画面
+├─ http / webhook  HTTP API / 外部から呼ばれる受け口
+├─ graphql / rpc / websocket
+├─ cron / scheduler / queue-consumer / worker
+├─ event-handler / lifecycle-hook / db-trigger
+└─ cli
 ```
 
-`verify.py --mode` で照合する対象が変わる。
+機能の候補は入口から機械的に作る。画面の機能には、その画面が呼ぶ API を含める。
+画面・定期実行・他の API から呼ばれていない API は、それ自体が機能の起点になる（外部向け API・Webhook）。
 
-| モード | 照合するもの |
-| --- | --- |
-| `structure` | エンドポイント / errorType / テーブル |
-| `flow` | エンドポイント / テーブル |
-| `detail` | エンドポイント / テーブル / **実装ファイルのパス** |
+**機能の業務上の名前はコードからは決まらない。** 候補はコードの識別子のまま「名前未確定」と表示し、
+Claude が根拠のある名前を注釈で付けたものだけを確定とする。1 画面に機能が 2 つあるような束ね直しも注釈で行う。
 
-Mermaid のコードブロックは照合対象から外す。シーケンス図には外部サービスへの
-呼び出しや概念上のパスが出るので、拾えば必ず誤検知になる。
+## 根拠（Evidence）
 
-## 依存
+本文には大量のパスを載せず、`evidence.json` に索引として持つ。
 
-**Python 3 の標準ライブラリのみ。** 追加インストールは不要。
+```json
+"endpoint:POST /api/orders": {
+  "sources": [{"file": "src/app/api/orders/route.ts", "line": 3, "rule": "nextjs.route"}],
+  "relations": {"tables": [{"id": "table:orders", "sources": [{"file": "src/services/orders.ts", "line": 8}]}]},
+  "annotation": [{"file": "src/app/api/orders/route.ts"}]
+}
+```
 
-## 検証済みのスタック
+注釈の根拠は `check` が実在と安全性（開いてはいけないファイルでないか、リポジトリの外でないか）を確かめる。
 
-`inventory.py` の判定と候補列挙を、実際のプロジェクトで確認したもの。
+## Coverage と Verify
 
-| スタック | 確認した内容 |
-| --- | --- |
-| Next.js + Strapi（モノレポ・ts/tsx 792 本） | 判定・候補列挙（画面 39/39・ルート 124 件・連携 4 件）・照合 |
-| Next.js + Hono + Drizzle + PostgreSQL | 判定・候補列挙・DB 定義書の生成・照合・HTML 変換 |
-| Expo Router + Supabase | 判定・候補列挙（`app/` 配下の `.tsx` と Edge Function の検出） |
+**coverage（source → docs）** は資料の本文を実際に読み、コードにある実体が載っているかを数える。
+資料を作ったあとにコードが増えれば、再解析で漏れとして出る（資料の鮮度の検査）。
 
-これ以外のスタックでも汎用手順で動くが、**フレームワーク固有の書き方は
-`references/stacks/` に無ければ読み取れない。** 精度は落ちる。
+```
+API: detected 83 / documented 79 / coverage 95.2% / described 40
+  undocumented:
+    - endpoint:POST /internal/reindex
+```
+
+| 区分 | 意味 | 網羅率の分母 |
+| --- | --- | --- |
+| documented / undocumented | 資料に載っている / いない | 入る |
+| unresolved | コードから識別子を確定できなかった（パスが変数など） | 入らない |
+| unsupported | 解析器が読み取れなかった箇所。実体として数えられない | 入らない（一覧だけ） |
+| excluded | 注釈で意図して外したもの（理由つき） | 入らない |
+
+対象は API・DB テーブル・画面・外部連携・入口・機能。`--json` と `coverage.json` で機械可読。
+`--fail-under 90` を付ければ CI で止められる。
+
+**verify（docs → source）** は資料に書いたエンドポイント・テーブル・ファイルパス・errorType がコードに実在するかを確かめる。
+拾えるのは「実在しないものを書いた」誤りだけで、「分岐条件の説明が実装と違う」は検出できない。
+
+## 詳細設計
+
+`detail --feature <機能>` で、次の章を持つ資料を作る。注釈が無い章は「未確認」になり、モデルから分かる範囲
+（入口・テーブル操作・外部連携・関連ファイル）は機械が埋める。
+
+概要 / 入口 / 前提条件 / 入力 / バリデーション / シーケンス（`sequenceDiagram`、`alt` で分岐）/ 分岐とエラー /
+データへの影響 / トランザクション / 同時実行・ロック / 冪等性 / 状態遷移（`stateDiagram-v2`）/ 外部連携 /
+副作用 / 関連ファイル / 根拠 / 未確認
+
+トランザクション・冪等性などは `implemented`（根拠必須）/ `not-implemented` / `unverified`（調べた範囲必須）の
+3 値で書く。「張っているはず」を書けない形にしてある。
+
+処理概要（`flow`）は「何を入れると、何をして、何が出るか」に絞り、処理の要点は 5 行まで（6 行目で `check` がエラー）。
 
 ## セキュリティ
 
 このスキルは他人のリポジトリを読む。そのための取り決め。
 
-**外部へ送信しない。** 対象リポジトリの内容をネットワークへ出す処理は同梱スクリプトに無い。
-依存も Python 標準ライブラリだけなので、外部パッケージ経由の送信経路も無い。
+**同梱スクリプトはネットワークに送信しない。** 依存も Python 標準ライブラリだけ。
+ただし **Claude が読んだソースコードは、通常の Claude Code と同じく Anthropic に送られる。**
+社内のコードに使うときは、各社の Claude Code の利用規程に従うこと。
 
-**認証情報の入りうるファイルを開かない。** `scripts/_secure.py` が判定し、
-`inventory.py` と `verify.py` が最初から除外する。SKILL.md にも同じ規則を書いてあるので、
-Claude が自分で開くこともしない。
+**認証情報の入りうるファイルを開かない。** 解析器は名前と場所で判定し、最初から除外する。
 
 | 除外するもの | 例 |
 | --- | --- |
 | 環境変数の実ファイル | `.env` / `.env.local` / `.env.production` |
-| 鍵そのもの | `*.pem` / `*.key` / `*.p12` / `*.jks` / `id_rsa` |
-| 認証情報ファイル | `credentials.json` / `service-account.json` / `.npmrc` / `.netrc` |
+| 鍵そのもの | `*.pem` / `*.key` / `*.p12` / `*.jks` / `id_rsa` / `*.p8` |
+| 認証情報ファイル | `credentials.json` / `service-account.json` / `.npmrc` / `.netrc` / `.git-credentials` |
 | ディレクトリごと | `.ssh/` / `.aws/` / `.gnupg/` / `.kube/` / `credentials/` / `secrets/` |
-| その他 | `.envrc` / `*.tfvars` / `*.p8` / `.git-credentials` / `.pgpass` |
-| **シンボリックリンク** | 名前が `schema.ts` でもリンク先は分からない |
+| シンボリックリンク | ファイルもディレクトリも辿らない |
 
-例外は `.env.example` などのテンプレートのみ。外部連携の変数名を知るために読む。
-ただし**開けば値も見える**ので、「値を読まない」は仕組みではなく約束である点に注意。
+`.env.example` などのテンプレートからは**変数名だけ**を取り出す（値を返す関数が無い）。
+社内・私有ホスト（私有 IP・`*.internal` など）への呼び出しは、ホスト名を記録せず存在だけを報告する。
 
-**資料 1 本ごとに機密検出を通す。** `secrets.py` はクラウドサービスのトークン（GitHub /
-Slack / Stripe / OpenAI / Anthropic / Google / SendGrid / Twilio / npm / AWS）、秘密鍵、
-JWT、DB 接続文字列、メールアドレス、電話番号、私有 IP、内部ホスト名を検出する。
-**検出しても自動で伏せ字にしない。** 誤検知が出るので、判断は必ず人間に回す。
+**機密を資料に出さない。** 注釈に認証情報らしき値があれば `render` は書き出さずに止まる。
+生成した資料にも毎回機密検出を通す。検出しても自動で伏せ字にしない（誤検知があるため人間が判断する）。
 
-**生成した HTML は安全側に倒す。** リンクは禁止一覧ではなく**許可一覧**で判定する
-（`http` / `https` / `mailto` / ページ内 / 相対リンクのみ）。制御文字を含むものは通さない。
-ファイル名も属性としてエスケープする。
+**生成した HTML は安全側に倒す。** リンクは許可一覧（`http` / `https` / `mailto` / ページ内 / 相対）、
+Mermaid は既知の XSS が修正された 11.17.2 を SRI 付きで読み込み、`securityLevel: strict` で描く。
+外部スクリプトを読み込みたくなければ `--no-mermaid`。書き出し先に `.git` / `node_modules` / ホーム直下は使えない。
 
-**Mermaid は修正済みのバージョンを SRI 付きで読み込む。** 11.17.2 を
-`integrity` / `crossorigin` 付きで指定する。v10 系は 10.9.8 未満、v11 系は 11.16.1 未満に
-既知の XSS（CVE-2025-54881 ほか）があり、`securityLevel: strict` でも影響を受ける。
-**外部スクリプトを一切読み込みたくない場合は `--no-mermaid`** を付ける。
-
-**書き出し先を検証する。** `.git` / `node_modules` を含むパスやホームディレクトリ直下への
-出力は拒否する。既存ファイルを上書きする場合はそのパスを標準エラーに出す。
-
-**入力サイズに上限がある。** 1 ファイル 1MB / 走査合計 50MB / 検査対象 5MB / 1 行 4000 文字。
-超えた分は切り捨て、切り捨てたことを標準エラーに出す。
+**入力サイズに上限がある。** 1 ファイル 1MB / 走査合計 50MB。超えた分は読まず、資料の未確認一覧に出す。
 
 ### それでも防げないこと
 
-- **機密検出は誤検知も見落としもある。** パターンに無い形式のトークンは検出できない
-- **除外リストは名前で判定する。** 変わった名前のファイルに秘密が入っていれば読んでしまう
-- **`.env.example` は開く。** 変数名を得るためだが、実値が書かれていれば見えてしまう
-- **Mermaid は外部スクリプト。** CDN が侵害されれば SRI で実行は止まるが図は出ない
-- **公開前に人間が読む必要がある。** 特に社外へ出す資料は、機密検出を通したうえで目視する
+- 除外は名前で判定する。変わった名前のファイルに秘密が入っていれば読んでしまう
+- 機密検出は誤検知も見落としもある。社外に出す資料は、検出を通したうえで人間が目視する
+- `.env` を開かないという規則を Claude が守るかは SKILL.md の約束による。確実に止めたいなら
+  各自の settings の `permissions.deny` で読み取りを禁止する
+
+## 対応スタック
+
+`tests/fixtures/` の小さな再現プロジェクトで、回帰テストとして確かめているもの。
+
+| スタック | 確かめていること |
+| --- | --- |
+| Next.js（App / Pages Router・Server Actions） | 画面・route handler・動的セグメント・ルートグループ・`use server` |
+| Next.js + Strapi（モノレポ） | 2 アプリの判定・コアルータ（`only`）・独自ルート・ライフサイクル・cron・フロントの中継 API → Strapi の呼び出し |
+| Next.js + Hono + Drizzle + PostgreSQL | `app.route()` のマウントと `basePath`・別名 import・テーブル定義・FK・CHECK |
+| Expo Router + Supabase | ファイルベースの画面・Edge Function・`supabase.from()`・`functions.invoke`・SQL マイグレーション・トリガ・pg_cron |
+| Express / Fastify | ルート登録・`Router()` / `route()` のマウント・`register(prefix)`・パスが変数のときの報告 |
+| Prisma / Drizzle / SQL / SQLAlchemy | テーブル・カラム・PK / FK / UK / CHECK / Index / Enum / View |
+| BullMQ / amqplib / node-cron / Nest Schedule / Vercel Cron / Celery | キュー処理・定期実行 |
+| FastAPI / Gin | ルート（`APIRouter(prefix)` / `Group`） |
+| GraphQL SDL / tRPC / socket.io | 入口として検出 |
+
+**旧版（〜0.3）で実プロジェクトに対して確かめた結果は、この解析器には引き継いでいない。** 実プロジェクトでの
+再検証は未実施。知らない書き方は UNSUPPORTED と coverage の unresolved に出るので、まずそこを見る。
+
+### スタックを追加する
+
+1. `scripts/sdocs/adapters/` に `base.Adapter` を継承したクラスを作る（`applies` / `collect` / `usages` / `imports`）
+2. `adapters/__init__.py` の `all_adapters()` に足す
+3. `tests/fixtures/` に小さな再現プロジェクトを置き、`tests/test_stacks.py` に期待値を書く
+
+中核のコードは触らない。Laravel / Rails / Django / Spring Boot / NestJS のデコレータなどは、この形で足す。
 
 ## このスキルの限界
 
-- **漏れゼロは機械で保証できない。** バッチや Webhook は書き方がプロジェクト次第で、
-  独自構造なら取りこぼしうる
-- **機械照合は作文しか検出できない。** 「実在しないエンドポイントを書いた」は防げるが、
-  「分岐条件の説明が実装と違う」は検出できない。**`detail` ほどこの差が効く**
-- **機密検出は誤検知が出る。** だから自動で伏せ字にせず、常に人間の判断に回す
-- **未検証のスタックでは精度が落ちる。** 上の表にないスタックでは、
-  読み取れなかった箇所が未確認として増える
+- **検出は書き方に依存する。** 解析器が知らない書き方の入口は候補に出ない
+- **関係は import を 3 段まで辿った範囲。** DI コンテナ・動的な呼び出し・文字列で組み立てた URL は辿れない。
+  辿り先のファイル全体を読むので、同じファイルの別の関数の操作が混ざることがある
+- **業務上の名前と意味は機械では決まらない。** 注釈が無い項目は「未確認」として残る
+- **機械照合は作文しか検出できない。** 説明の誤りは人間が読んで見つける
 
 ## 未実装
 
-- **差分更新** — Git 差分で変更箇所だけ再生成する。前提条件（各 md 冒頭のコミットハッシュ）は
-  満たしてある
-- **人間が書いた補足との共存**
-- **Notion / Excel への出力** — md をそのまま Notion の Markdown インポートに渡せば
-  見出しと表は取り込める（Mermaid は図にならない）。専用の出力形式は未実装
+- 変更箇所だけの再生成（全体の再解析・再生成で対応する。注釈は保たれる）
+- Notion / Excel への出力（`tools/md2notion.py` は検討中の別ツール）
+- Laravel / Rails / Django / Spring Boot / NestJS のルート検出
 
 ## 開発
 
@@ -262,8 +300,7 @@ JWT、DB 接続文字列、メールアドレス、電話番号、私有 IP、�
 python3 -m unittest discover -s tests -v
 ```
 
-追加依存なし。`tests/fixtures/` に小さなダミープロジェクトを置いてある。
-push と pull request で GitHub Actions が同じテストを走らせる。
+追加依存なし。push と pull request で GitHub Actions が Python 3.9 と 3.12 で同じテストを走らせる。
 
 ## ライセンス
 
