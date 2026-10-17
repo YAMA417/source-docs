@@ -152,8 +152,15 @@ def candidates(model):
                     called.add(rel["id"])
 
     features, used_ids = [], set()
+    # どこからも呼ばれていない API は、同じリソース（`/api/articles` と `/api/articles/:id`）を 1 つの候補に
+    # まとめる。1 本ずつ機能にすると、CRUD が自動で生える基盤（Strapi など）で一覧が API の羅列になる
+    api_groups = {}
     for ep in sorted(model["entrypoints"], key=lambda e: (_order(e["type"]), e["id"])):
         if ep["type"] in API_TYPES and ep.get("target") in called:
+            continue
+        if ep["type"] == "http":
+            target = idx.get(ep.get("target")) or {}
+            api_groups.setdefault((ep["app"], resource_of(target.get("path") or ep["key"])), []).append(ep)
             continue
         acc = _Acc(idx)
         acc.add_entrypoint(ep)
@@ -162,6 +169,23 @@ def candidates(model):
             for api_ep in by_target.get(endpoint_id, []):
                 acc.entrypoints.add(api_ep["id"])
         features.append(_candidate(acc, ep, used_ids))
+    position = sum(1 for f in features if f["type"] == "screen")
+    for (_, resource), eps in sorted(api_groups.items(), key=lambda kv: kv[0][1]):
+        acc = _Acc(idx)
+        for ep in eps:
+            acc.add_entrypoint(ep)
+        for endpoint_id in sorted(acc.endpoints):
+            for api_ep in by_target.get(endpoint_id, []):
+                acc.entrypoints.add(api_ep["id"])
+        if len(eps) == 1:
+            feature = _candidate(acc, eps[0], used_ids)
+        else:
+            suffix = eps[0]["id"].split("@", 1)[1] if "@" in eps[0]["id"] else ""
+            name = f"{resource} の API" + (f"@{suffix}" if suffix else "")
+            fid = _unique(f"feature:api-{slug(resource + ('-' + suffix if suffix else ''))}", used_ids)
+            feature = acc.export(fid, name, "derived", "api", "candidate")
+        features.insert(position, feature)
+        position += 1
     # 呼び合っている API どうしは、どちらも起点にならずに漏れうる。どの機能にも入らなかった入口は単独で起点にする
     covered = {e for f in features for e in f["entrypoints"]}
     for ep in sorted(model["entrypoints"], key=lambda e: e["id"]):
@@ -171,6 +195,14 @@ def candidates(model):
             features.append(_candidate(acc, ep, used_ids))
             covered |= acc.entrypoints
     return features
+
+
+def resource_of(path):
+    """パスから、末尾のパラメータを除いたリソースのパスを作る（`/api/posts/:id` → `/api/posts`）。"""
+    segs = [x for x in path.split("/") if x]
+    while segs and (segs[-1].startswith((":", "{", "[", "*", "<", "$"))):
+        segs.pop()
+    return "/" + "/".join(segs)
 
 
 def _candidate(acc, ep, used_ids):
