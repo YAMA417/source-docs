@@ -90,33 +90,112 @@ def resolve(b, apps, adapters_by_app):
     _link_webhook_senders(b)
 
 
+# トップレベルの定義（JS / TS の function・const・class、Python の def・class）
+RE_TOP_DEF = re.compile(
+    r"^(?:export\s+)?(?:default\s+)?(?:async\s+)?"
+    r"(?:function\*?\s+([\w$]+)|(?:const|let|var|class)\s+([\w$]+)|def\s+(\w+))", re.M)
+
+
+# 行頭から始まる文（閉じ括弧で始まる行は前の定義の続き）
+RE_TOP_STATEMENT = re.compile(r"^(?![\s}\])])\S", re.M)
+
+
+def definitions(text):
+    """{名前: (開始, 終了)}。定義の次のトップレベルの文の手前までを 1 つの定義とみなす。
+
+    `const app = new Hono()` のあとに続く `app.get(...)` を定義に含めないため、
+    次の定義ではなく次の文で切る。
+    """
+    out = {}
+    for m in RE_TOP_DEF.finditer(text):
+        name = m.group(1) or m.group(2) or m.group(3)
+        nxt = RE_TOP_STATEMENT.search(text, text.find("\n", m.start()) + 1 if "\n" in text[m.start():] else len(text))
+        end = nxt.start() if nxt else len(text)
+        out.setdefault(name, (m.start(), end))
+    return out
+
+
+def _uses(body, name):
+    return re.search(r"(?<![\w$.])" + re.escape(name) + r"\b", body) is not None
+
+
+RE_FUNCTION_DEF = re.compile(
+    r"^(?:export\s+)?(?:default\s+)?(?:async\s+)?(?:function\b|def\b|"
+    r"(?:const|let|var)\s+[\w$]+\s*(?::[^=]+)?=\s*(?:async\s*)?(?:function\b|\([^)]*\)\s*(?::[^=]+)?=>|[\w$]+\s*=>))")
+
+
+def _should_follow(body, name, definition, depth=1):
+    """その定義を辿るか。
+
+    関数は参照されていれば辿る（`router.get('/', list)` のように関数を渡す書き方がある）。
+    オブジェクトやインスタンスは、呼び出し・メンバー参照・JSX・`new` で使われたときだけ辿る。
+    `getServerSession(authOptions)` のように設定を渡しているだけの箇所から、
+    設定の中の OAuth やメール送信を、その画面の連携として拾わないため。
+    ただしモジュールの最上位で設定を渡して入口そのものを作っている場合（`export default
+    NextAuth(authOptions)` / `const handler = NextAuth(authOptions)`）は辿る。その設定の中身は
+    入口の動作だから。関数の中で渡しているだけ（`getServerSession(authOptions)`）なら辿らない。
+    """
+    if definition is None or RE_FUNCTION_DEF.match(definition):
+        return _uses(body, name)
+    n = re.escape(name)
+    if depth == 0 and re.search(
+            r"^(?:export\s+default\s+|(?:export\s+)?(?:const|let|var)\s+[\w$]+\s*=\s*)"
+            r"[\w$.]+\([^)]*(?<![\w$.])" + n + r"\b", body, re.M):
+        return True
+    return re.search(r"(?<![\w$.])" + n + r"\s*(?:\(|\.|`)|<" + n + r"\b|\bnew\s+" + n + r"\b", body) is not None
+
+
 def _walk(app, adapters, loc):
-    """入口のコード片から始めて、使っている import をたどる。(ファイル, 本文, 深さ) を返す。"""
+    """入口のコード片から始めて、使っている定義をたどる。
+
+    別ファイルは import した名前の定義だけを読む（ファイル全体を読むと、使っていない関数の
+    テーブル操作や API 呼び出しまで混ざる）。定義が見つからなければファイル全体を読む。
+    同じファイルのトップレベル定義を参照していれば、それも読む。
+    返すのは (ファイル, 本文, 深さ, 本文の開始位置) の列。
+    """
     rel = loc["file"]
     full = app.read(rel)
+    start = loc.get("start") or 0
     end = loc.get("end")
-    segment = full[loc.get("start") or 0:end if end is not None else len(full)]
-    seen = {rel}
-    queue = [(rel, segment, full, 0)]
+    end = len(full) if end is None else end
+    seen = {(rel, start)}
+    queue = [(rel, start, end, 0)]
     out = []
     while queue and len(out) < MAX_FILES:
-        f, seg, whole, depth = queue.pop(0)
-        out.append((f, seg, depth))
+        f, s, e, depth = queue.pop(0)
+        whole = app.read(f)
+        seg = whole[s:e]
+        out.append((f, seg, depth, s))
         if depth >= MAX_DEPTH:
             continue
-        imports = {}
+        body = _without_import_lines(seg)
+        imports, aliases = {}, {}
         for a in adapters:
             imports.update(a.imports(app, f, whole))
-        body = _without_import_lines(seg)
+            aliases.update(a.aliases(app, f, whole))
         for name, target in sorted(imports.items()):
-            if target in seen or name.startswith("*"):
+            if name.startswith("*") or not _uses(body, name):
                 continue
-            if not re.search(r"(?<![\w$.])" + re.escape(name) + r"\b", body):
-                continue
-            seen.add(target)
             text = app.read(target)
-            queue.append((target, text, text, depth + 1))
+            found = definitions(text).get(aliases.get(name, name))
+            span = found or (0, len(text))
+            if not _should_follow(body, name, text[span[0]:span[1]] if found else None, depth):
+                continue
+            if (target, span[0]) in seen:
+                continue
+            seen.add((target, span[0]))
+            queue.append((target, span[0], span[1], depth + 1))
+        for name, (ds, de) in sorted(definitions(whole).items(), key=lambda kv: kv[1]):
+            if s <= ds < e or (f, ds) in seen or not _should_follow(body, name, whole[ds:de], depth):
+                continue
+            seen.add((f, ds))
+            queue.append((f, ds, de, depth + 1))
     return out
+
+
+def _env_prefix(key):
+    """連携先のキーから、環境変数名の接頭辞を作る（`github-oauth` → `GITHUB`、`host:api.x.com` → `API`）。"""
+    return re.split(r"[-.:]", key.split(":")[-1])[0].upper()
 
 
 def _without_import_lines(text):
@@ -127,14 +206,12 @@ def _resolve_item(b, lookup, app, adapters, item, loc):
     env_by_file = {}
     integrations_by_file = {}
     unmatched = []
-    for rel, text, depth in _walk(app, adapters, loc):
+    for rel, text, depth, offset in _walk(app, adapters, loc):
         aliases = {}
         whole = app.read(rel)
         for a in adapters:
             aliases.update(a.aliases(app, rel, whole))
-        base_line = 0
-        if depth == 0 and loc.get("start"):
-            base_line = app.read(rel).count("\n", 0, loc["start"])
+        base_line = whole.count("\n", 0, offset)
         for a in adapters:
             for u in a.usages(app, rel, text):
                 line = base_line + text.count("\n", 0, u.get("offset", 0)) + 1
@@ -143,10 +220,13 @@ def _resolve_item(b, lookup, app, adapters, item, loc):
                     u = dict(u, alias=aliases[u["alias"]])
                 _apply(b, lookup, app, item, u, ev, unmatched, env_by_file, integrations_by_file, rel)
     # 環境変数は、同じファイルで使っている外部連携に結び付ける
+    # 変数名の接頭辞が連携先の名前と合うもの（`STRIPE_*` → Stripe）はその連携先にだけ付ける。
+    # どれとも合わないものは、同じファイルの連携先すべてに付ける（どれのものか決められないため）
     for rel, keys in integrations_by_file.items():
-        for key in keys:
-            integ = b.get(f"integrations||{key}")
-            for name in env_by_file.get(rel, []):
+        for name in env_by_file.get(rel, []):
+            owners = [k for k in keys if name.startswith(_env_prefix(k) + "_")]
+            for key in owners or keys:
+                integ = b.get(f"integrations||{key}")
                 if name not in integ["envVars"]:
                     integ["envVars"].append(name)
     if unmatched:
@@ -184,8 +264,12 @@ def _apply(b, lookup, app, item, u, ev, unmatched, env_by_file, integrations_by_
             if s["_uid"] != item["_uid"]:
                 b.relate(item, "links", s["_uid"], ev, tag=u.get("how"))
         if not found:
-            unmatched.append({"kind": "navigate", "value": u["route"], "file": ev["file"],
-                              "line": ev["line"]})
+            endpoints = [e for e in lookup.endpoint("GET", u["route"], "default") if e["_uid"] != item["_uid"]]
+            for e in endpoints:
+                b.relate(item, "calls", e["_uid"], ev)
+            if not endpoints:
+                unmatched.append({"kind": "navigate", "value": u["route"], "file": ev["file"],
+                                  "line": ev["line"]})
     elif kind == "publish":
         event = b.add_event_publisher(u["event"], ev)
         b.relate(item, "publishes", event["_uid"], ev)

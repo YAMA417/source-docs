@@ -222,6 +222,9 @@ def cmd_render(args):
     only = None
     if args.only is not None:
         only = [x.strip() for x in args.only.split(",") if x.strip()]
+    elif args.feature:
+        # 機能を指定したときは、その機能の資料だけを書く。全体資料も要るなら --only で足す
+        only = []
     kinds = (args.kind,) if args.kind else ("flow", "detail")
     written = render_docs(model, annotations, out_dir, only=only, feature_keys=args.feature or (),
                           kinds=kinds)

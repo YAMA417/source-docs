@@ -53,8 +53,14 @@ class Strapi(Adapter):
                                   f"{uid} にルート定義（createCoreRouter）が無い。API が公開されているかを確定できない")
         for rel in app.files_matching(r"^src/api/[^/]+/content-types/[^/]+/lifecycles\.(js|ts)$"):
             self._lifecycles(app, b, rel)
+        jobs_before = len(b.items("jobs"))
         for rel in app.files_matching(r"^config/(cron-tasks|server)\.(js|ts)$"):
             self._cron(app, b, rel)
+        if len(b.items("jobs")) == jobs_before:
+            for rel in app.files_matching(r"^config/server\.(js|ts)$"):
+                if re.search(r"cron\s*:\s*\{[^}]*enabled\s*:\s*(?:true|env\.bool)", strip_comments(app.read(rel))):
+                    b.add_unsupported(app.ref, rel, "worker",
+                                      "cron が有効だが、タスクの定義を読み取れない（外部プラグインや変数経由の可能性）")
 
     def _uid(self, app, rel):
         parts = app.app_rel(rel).split("/")

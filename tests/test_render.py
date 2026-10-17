@@ -174,6 +174,27 @@ class ErSplitTest(unittest.TestCase):
             shutil.rmtree(out)
 
 
+class ErRelationTest(unittest.TestCase):
+    def test_strapi_relations_use_cardinality_and_are_not_doubled(self):
+        m = analyze_files({
+            "package.json": json.dumps({"dependencies": {"@strapi/strapi": "4"}}),
+            "src/api/a/content-types/a/schema.json": json.dumps({"collectionName": "as", "info": {"singularName": "a", "pluralName": "as"},
+                "attributes": {"bs": {"type": "relation", "relation": "oneToMany", "target": "api::b.b"}}}),
+            "src/api/b/content-types/b/schema.json": json.dumps({"collectionName": "bs", "info": {"singularName": "b", "pluralName": "bs"},
+                "attributes": {"a": {"type": "relation", "relation": "manyToOne", "target": "api::a.a"}}}),
+        })
+        out = tempfile.mkdtemp()
+        try:
+            render_docs(m, {}, out, only=["database"])
+            text = open(os.path.join(out, "database.md"), encoding="utf-8").read()
+            # 双方向に宣言された 1 つのリレーションは 1 本だけ、カーディナリティつきで描く
+            self.assertIn("as ||--o{ bs", text)
+            self.assertNotIn("bs }o--|| as", text)
+            self.assertNotIn("}o--o{", text)
+        finally:
+            shutil.rmtree(out)
+
+
 class MermaidTest(unittest.TestCase):
     def test_label_escaping(self):
         label = mm.label('a "b" <script>; #x')

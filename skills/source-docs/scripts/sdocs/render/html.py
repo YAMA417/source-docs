@@ -255,7 +255,9 @@ blockquote { margin:0 0 16px; padding:12px 16px; border-left:2px solid var(--acc
 table { border-collapse:collapse; width:100%; font-size:13.5px; }
 th { text-align:left; font-size:12px; color:var(--ink-2); border-bottom:1px solid var(--line);
   padding:8px 10px 8px 0; white-space:nowrap; }
-td { border-bottom:1px solid var(--line); padding:9px 10px 9px 0; vertical-align:top; color:var(--ink-2); }
+td { border-bottom:1px solid var(--line); padding:9px 10px 9px 0; vertical-align:top; color:var(--ink-2);
+  word-break: keep-all; overflow-wrap: break-word; }
+td code { white-space: nowrap; overflow-wrap: normal; }
 td:first-child { color:var(--ink); }
 """
 

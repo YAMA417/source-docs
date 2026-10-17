@@ -12,6 +12,13 @@ from .lang_js import is_js, package_name, parse_imports
 
 # パッケージ名（接頭辞一致）→ (キー, 表示名)
 SDKS = [
+    # 下位パスまで見る対応。認証ライブラリの OAuth プロバイダなど、パッケージ名だけでは連携先が決まらないもの
+    ("next-auth/providers/github", "github-oauth", "GitHub（OAuth）"),
+    ("next-auth/providers/google", "google-oauth", "Google（OAuth）"),
+    ("next-auth/providers/discord", "discord-oauth", "Discord（OAuth）"),
+    ("next-auth/providers/twitter", "twitter-oauth", "X（OAuth）"),
+    ("@auth/core/providers/github", "github-oauth", "GitHub（OAuth）"),
+    ("@auth/core/providers/google", "google-oauth", "Google（OAuth）"),
     ("stripe", "stripe", "Stripe"),
     ("@stripe/", "stripe", "Stripe"),
     ("stripe-go", "stripe", "Stripe"),
@@ -36,6 +43,12 @@ SDKS = [
     ("slack_sdk", "slack", "Slack"),
     ("resend", "resend", "Resend"),
     ("nodemailer", "smtp", "SMTP（メール送信）"),
+    ("postmark", "postmark", "Postmark"),
+    ("@clerk/", "clerk", "Clerk"),
+    ("@auth0/", "auth0", "Auth0"),
+    ("mailgun.js", "mailgun", "Mailgun"),
+    ("@mailchimp/", "mailchimp", "Mailchimp"),
+    ("@paypal/", "paypal", "PayPal"),
     ("@sentry/", "sentry", "Sentry"),
     ("sentry_sdk", "sentry", "Sentry"),
     ("@shopify/", "shopify", "Shopify"),
@@ -65,6 +78,8 @@ RE_ENV = [
     re.compile(r"""\bos\.Getenv\(\s*"([A-Z][A-Z0-9_]*)"\s*\)"""),
     re.compile(r"""\bENV\[\s*['"]([A-Z][A-Z0-9_]*)['"]\s*\]"""),
     re.compile(r"""\benv\(\s*['"]([A-Z][A-Z0-9_]*)['"]"""),
+    # t3-env / zod で検証した env オブジェクト（`env.STRIPE_API_KEY`）
+    re.compile(r"(?<![\w.])env\.([A-Z][A-Z0-9_]*)\b"),
 ]
 
 RE_PY_IMPORT = re.compile(r"^\s*(?:from\s+([\w.]+)\s+import|import\s+([\w.]+))", re.M)
@@ -88,9 +103,11 @@ def imported_sdks(rel, text):
     if is_js(rel):
         for names, spec in parse_imports(text):
             pkg = package_name(spec)
-            hit = sdk_for(pkg) if pkg else None
+            if not pkg:
+                continue
+            hit = sdk_for(spec) or sdk_for(pkg)
             if hit:
-                found.append((hit[0], hit[1], pkg, names))
+                found.append((hit[0], hit[1], spec if sdk_for(spec) and spec != pkg else pkg, names))
     elif rel.endswith(".py"):
         for m in RE_PY_IMPORT.finditer(text):
             pkg = (m.group(1) or m.group(2)).split(".")[0]
@@ -145,9 +162,11 @@ class Integrations(Adapter):
     def usages(self, app, rel, text):
         out = []
         code = strip_comments(text) if is_js(rel) else text
-        sdks = imported_sdks(rel, text)
+        full = app.read(rel) if app is not None else text
+        sdks = imported_sdks(rel, full or text)
         for key, name, pkg, names in sdks:
             # import しただけでなく、その名前（かそこから作ったクライアント）を使っているか
+            names = names + _client_vars(full or text, names)
             used = not names or any(re.search(r"\b" + re.escape(n) + r"\b", _without_imports(code))
                                     for n in names)
             if used:
@@ -168,6 +187,14 @@ class Integrations(Adapter):
             for m in rx.finditer(code):
                 out.append({"kind": "env", "name": m.group(1), "offset": m.start()})
         return out
+
+
+def _client_vars(text, names):
+    """import した名前から作った変数（`const stripe = new Stripe(...)`）の名前。"""
+    if not names:
+        return []
+    alt = "|".join(re.escape(n) for n in names)
+    return re.findall(r"\b(?:const|let|var)\s+(\w+)\s*=\s*(?:new\s+)?(?:" + alt + r")\b", text)
 
 
 def _without_imports(text):

@@ -19,6 +19,7 @@ from .sql import Sql
 def all_adapters():
     """毎回新しいインスタンスを返す。アダプタは解析 1 回分の状態を持つため。"""
     return [
+        # Sql は ORM より先。両方が同じテーブルを定義するとき、マイグレーションを正とするため
         JsLanguage(), NextJs(), ExpoRouter(), JsHttp(), Strapi(), Supabase(),
-        Drizzle(), Prisma(), Sql(), BackgroundJs(), PythonWeb(), GoGin(), Integrations(),
+        Sql(), Drizzle(), Prisma(), BackgroundJs(), PythonWeb(), GoGin(), Integrations(),
     ]

@@ -57,6 +57,7 @@ python3 <skill-dir>/scripts/source_docs.py <サブコマンド> [--out <dir>]
 
 - 利用者の作業ディレクトリからの相対パス（`python3 scripts/...`）で呼ばない
 - **Windows では `python3` が無いことがある。** 動かなければ `python`、それも無ければ `py`
+- **1 回に 1 コマンドを実行する。** `&&` や `;` でつなぐと、利用者に毎回許可を求めることになる
 
 | サブコマンド | 役割 |
 | --- | --- |
@@ -127,6 +128,8 @@ python3 <skill-dir>/scripts/source_docs.py render --out <out> [--only database] 
 ```
 
 - `check` の ERROR は全部直してから `render` する。`render` は誤りがあると書き出さない
+- WARN の「古い注釈」は、コードの変更や再解析で対象の ID が無くなったもの。資料には反映されない。
+  `features` で今の候補を確かめ、付け直すか消す。完了報告でも件数を伝える
 - **機密を検出したら、リトライせずその場で人間に見せる。** 伏せ字にする判断を機械にさせない
   （注釈に認証情報らしき値があると、`render` は書き出さずに止まる）
 

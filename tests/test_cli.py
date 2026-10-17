@@ -67,6 +67,18 @@ class CliFlowTest(unittest.TestCase):
                                                "columns": [], "meaning": ""}])
         self.assertEqual(spec["transaction"]["status"], "unverified")
 
+    def test_render_feature_writes_only_that_document(self):
+        out = tempfile.mkdtemp(prefix="sd-cli-")
+        try:
+            run("analyze", "--repo", fixture("shop"), "--out", out)
+            p = run("render", "--out", out, "--feature", "receipts", "--kind", "detail")
+            self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+            mds = sorted(os.path.relpath(os.path.join(r, f), out).replace(os.sep, "/")
+                         for r, _, fs in os.walk(out) for f in fs if f.endswith(".md"))
+            self.assertEqual(mds, ["detail/queue-consumer-receipts.md"])
+        finally:
+            shutil.rmtree(out, ignore_errors=True)
+
     def test_unknown_feature(self):
         p = run("scaffold", "--feature", "存在しない", "--out", self.out)
         self.assertEqual(p.returncode, 2)
@@ -104,10 +116,10 @@ class CliErrorTest(unittest.TestCase):
             run("analyze", "--repo", fixture("shop"), "--out", out)
             with open(os.path.join(out, ".source-docs", "annotations.json"), "w", encoding="utf-8") as f:
                 json.dump({"schema": "source-docs/annotations", "version": 1,
-                           "entities": {"endpoint:GET /ghost": {"summary": "x"}}}, f)
+                           "entities": {"table:orders": {"unverified": [{"item": "単位"}]}}}, f)
             p = run("check", "--out", out)
             self.assertEqual(p.returncode, 1)
-            self.assertIn("Project Model に無い ID", p.stdout)
+            self.assertIn("searched", p.stdout)
             p = run("render", "--out", out)
             self.assertEqual(p.returncode, 1)
         finally:

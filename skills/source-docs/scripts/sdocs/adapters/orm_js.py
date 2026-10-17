@@ -6,6 +6,20 @@ from .base import Adapter, line_of, match_brace, split_top_level, strip_comments
 from .lang_js import is_js
 
 
+def add_column(table, col):
+    """ORM の定義からカラムを足す。同じ名前が既にあれば足さない。
+
+    マイグレーション（SQL）と ORM の両方が同じテーブルを定義している場合、
+    実際の DB に近いマイグレーションを正とする。SQL の解析器が先に走る。
+    """
+    if any(c["name"] == col["name"] for c in table["columns"]):
+        return False
+    table["columns"].append(col)
+    if col["primaryKey"] and col["name"] not in table["primaryKey"]:
+        table["primaryKey"].append(col["name"])
+    return True
+
+
 def column(name, type_, nullable=None, default=None, primary=False, unique=False,
            references=None, note=None):
     col = {"name": name, "type": type_, "nullable": nullable, "default": default,
@@ -90,12 +104,10 @@ class Drizzle(Adapter):
                     dm.group(1), dm.group(2).strip() or dm.group(1))
             primary = ".primaryKey()" in part
             not_null = ".notNull()" in part or primary
-            table["columns"].append(column(
+            add_column(table, column(
                 col_name, self.enum_vars.get(builder, builder), nullable=not not_null, default=default, primary=primary,
                 unique=".unique()" in part,
                 references={"table": ref.group(1), "column": ref.group(2)} if ref else None))
-            if primary:
-                table["primaryKey"].append(col_name)
             if ref:
                 table["foreignKeys"].append({"columns": [col_name],
                                              "references": {"table": ref.group(1),
@@ -143,6 +155,9 @@ class Drizzle(Adapter):
 
 # --- Prisma --------------------------------------------------------------------
 
+PRISMA_PROVIDERS = {"postgresql": "PostgreSQL", "postgres": "PostgreSQL", "mysql": "MySQL",
+                    "sqlite": "SQLite", "sqlserver": "SQL Server", "mongodb": "MongoDB",
+                    "cockroachdb": "CockroachDB"}
 RE_PRISMA_BLOCK = re.compile(r"^(model|view|enum)\s+(\w+)\s*\{", re.M)
 RE_PRISMA_FIELD = re.compile(r"^\s*(\w+)\s+(\w+)(\[\])?(\?)?\s*(.*)$")
 PRISMA_SCALARS = {"String", "Int", "BigInt", "Float", "Decimal", "Boolean", "DateTime", "Json",
@@ -180,6 +195,9 @@ class Prisma(Adapter):
 
     def _schema(self, app, b, rel, text):
         text = re.sub(r"//[^\n]*", "", text)
+        ds = re.search(r"datasource\s+\w+\s*\{[^}]*?provider\s*=\s*\"(\w+)\"", text)
+        if ds:
+            b.add_stack_hint(app.ref, "db", PRISMA_PROVIDERS.get(ds.group(1), ds.group(1)))
         models = {m.group(2) for m in RE_PRISMA_BLOCK.finditer(text) if m.group(1) in ("model", "view")}
         enums = {m.group(2) for m in RE_PRISMA_BLOCK.finditer(text) if m.group(1) == "enum"}
         for m in RE_PRISMA_BLOCK.finditer(text):
@@ -192,7 +210,7 @@ class Prisma(Adapter):
                           if ln.strip() and not ln.strip().startswith("@")]
                 b.add_enum(app.ref, name, values, ev)
                 continue
-            mapped = re.search(r"@@map\(\s*\"([^\"]+)\"", body)
+            mapped = re.search(r"@@map\(\s*(?:name\s*:\s*)?\"([^\"]+)\"", body)
             schema = re.search(r"@@schema\(\s*\"([^\"]+)\"", body)
             table = b.add_table(app.ref, mapped.group(1) if mapped else name, ev,
                                 schema=schema.group(1) if schema else None,
@@ -224,7 +242,7 @@ class Prisma(Adapter):
                 continue
             if ftype not in PRISMA_SCALARS and ftype not in enums:
                 continue
-            col_map = re.search(r"@map\(\s*\"([^\"]+)\"", attrs)
+            col_map = re.search(r"@map\(\s*(?:name\s*:\s*)?\"([^\"]+)\"", attrs)
             col_name = col_map.group(1) if col_map else fname
             field_to_col[fname] = col_name
             db_type = re.search(r"@db\.(\w+(?:\([^)]*\))?)", attrs)
@@ -233,11 +251,9 @@ class Prisma(Adapter):
             if db_type:
                 type_ += f" ({db_type.group(1)})"
             primary = bool(re.search(r"@id\b", attrs))
-            table["columns"].append(column(
+            add_column(table, column(
                 col_name, type_, nullable=bool(optional), default=default, primary=primary,
                 unique=bool(re.search(r"@unique\b", attrs))))
-            if primary:
-                table["primaryKey"].append(col_name)
         for fk in table["foreignKeys"]:
             fk["columns"] = [field_to_col.get(c, c) for c in fk["columns"]]
 

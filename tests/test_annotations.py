@@ -29,9 +29,32 @@ class ShopAnnotationsTest(unittest.TestCase):
         self.assertEqual(result.errors, [])
         self.assertEqual(result.secret_findings, [])
 
-    def test_unknown_entity(self):
-        errs = self.errors(lambda d: d["entities"].update({"endpoint:GET /ghost": {"summary": "x"}}))
-        self.assertTrue(any("Project Model に無い ID" in e for e in errs))
+    def warnings(self, mutate):
+        data = copy.deepcopy(self.base)
+        mutate(data)
+        return check(self.docs.model, data, self.docs.out).warnings
+
+    def test_stale_entity_is_a_warning_not_an_error(self):
+        """コードの変更で消えた ID への注釈は、再生成を止めずに警告する。"""
+        mutate = lambda d: d["entities"].update({"endpoint:GET /ghost": {"summary": "x"}})  # noqa: E731
+        self.assertEqual(self.errors(mutate), [])
+        self.assertTrue(any("古い注釈" in w for w in self.warnings(mutate)))
+
+    def test_stale_candidate_rename_is_a_warning(self):
+        mutate = lambda d: d["features"].append({"id": "feature:api-gone", "name": "消えた機能"})  # noqa: E731
+        self.assertEqual(self.errors(mutate), [])
+        self.assertTrue(any("古い注釈" in w for w in self.warnings(mutate)))
+
+    def test_wrong_shape_is_an_error(self):
+        """描画で落ちる形（fields に文字列）は check で止める。"""
+        def m(d):
+            d["entities"]["endpoint:POST /api/orders"]["responses"][0]["fields"] = "id: number"
+        self.assertTrue(any("fields はオブジェクトの配列" in e for e in self.errors(m)))
+
+    def test_wrong_column_notes_shape(self):
+        def m(d):
+            d["entities"]["table:orders"]["columns"] = ["status"]
+        self.assertTrue(any("columns" in e for e in self.errors(m)))
 
     def test_unverified_requires_searched(self):
         def m(d):
@@ -98,7 +121,13 @@ class ShopAnnotationsTest(unittest.TestCase):
     def test_detail_for_missing_feature(self):
         def m(d):
             d["details"]["feature:nope"] = {}
-        self.assertTrue(any("機能が存在しない" in e for e in self.errors(m)))
+        self.assertEqual(self.errors(m), [])
+        self.assertTrue(any("機能が存在しない" in w for w in self.warnings(m)))
+
+    def test_detail_list_fields_must_be_objects(self):
+        def m(d):
+            d["details"]["feature:order-confirm"]["branches"] = ["productId が無いと 400"]
+        self.assertTrue(any("branches" in e for e in self.errors(m)))
 
     def test_secret_value_is_reported(self):
         data = copy.deepcopy(self.base)

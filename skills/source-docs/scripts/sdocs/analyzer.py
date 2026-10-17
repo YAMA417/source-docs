@@ -95,9 +95,12 @@ def analyze(repo_paths, out_dir):
     resolve(b, apps, adapters_by_app)
     apply_env_examples(b, apps)
     _resolve_foreign_keys(b)
+    _dedupe_constraints(b)
 
     for app in apps:
         stack = detect_stack(app.own_deps or app.deps)
+        for kind, labels in b.stack_hints.get(app.id, {}).items():
+            stack[kind] = sorted(set(stack[kind]) | labels)
         counts = _counts(b, app.id)
         b.applications.append({
             "id": app.id, "key": app.key, "repository": f"repo:{app.repo.key}",
@@ -156,6 +159,25 @@ def _resolve_foreign_keys(b):
         for rel in t.get("relations", []):
             if rel.get("target"):
                 rel["targetTable"] = _table_name(b, rel["target"])
+
+
+def _dedupe_constraints(b):
+    """SQL と ORM の両方から同じ制約を読んだときの重複を除く。インデックスは列で比べる。"""
+    for t in b.items("tables"):
+        for key in ("primaryKey", "uniques", "checks", "foreignKeys", "triggers"):
+            seen, out = set(), []
+            for item in t[key]:
+                k = repr(item)
+                if k not in seen:
+                    seen.add(k)
+                    out.append(item)
+            t[key] = out
+        by_cols = {}
+        for idx in t["indexes"]:
+            k = (tuple(idx["columns"]), idx["unique"])
+            if k not in by_cols or (idx.get("name") and not by_cols[k].get("name")):
+                by_cols[k] = idx
+        t["indexes"] = list(by_cols.values())
 
 
 def _table_name(b, alias):

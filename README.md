@@ -269,8 +269,15 @@ Mermaid は既知の XSS が修正された 11.17.2 を SRI 付きで読み込�
 | FastAPI / Gin | ルート（`APIRouter(prefix)` / `Group`） |
 | GraphQL SDL / tRPC / socket.io | 入口として検出 |
 
-**旧版（〜0.3）で実プロジェクトに対して確かめた結果は、この解析器には引き継いでいない。** 実プロジェクトでの
-再検証は未実施。知らない書き方は UNSUPPORTED と coverage の unresolved に出るので、まずそこを見る。
+実在の OSS でも確かめている（0.4.0 時点）。
+
+| プロジェクト | 構成 | 確かめたこと |
+| --- | --- | --- |
+| [shadcn-ui/taxonomy](https://github.com/shadcn-ui/taxonomy) | Next.js App Router + Prisma（MySQL）+ Stripe + NextAuth | 画面 14・API 8・テーブル 5 が実物と一致。画面 → API → テーブルの結び付き。Claude Code でスキルを起動し、Webhook の詳細設計を最後まで生成 |
+| [strapi/foodadvisor](https://github.com/strapi/foodadvisor) | Next.js + Strapi v4 のモノレポ | 2 アプリの判定・コアルータ 41 本・URL 組み立て関数経由の API 呼び出し。Claude Code で全体資料を生成 |
+
+生成した HTML は Chrome で開き、全ページの Mermaid の図が描けることを確かめた。
+知らない書き方は UNSUPPORTED と coverage の unresolved に出るので、まずそこを見る。
 
 ### スタックを追加する
 
@@ -283,8 +290,9 @@ Mermaid は既知の XSS が修正された 11.17.2 を SRI 付きで読み込�
 ## このスキルの限界
 
 - **検出は書き方に依存する。** 解析器が知らない書き方の入口は候補に出ない
-- **関係は import を 3 段まで辿った範囲。** DI コンテナ・動的な呼び出し・文字列で組み立てた URL は辿れない。
-  辿り先のファイル全体を読むので、同じファイルの別の関数の操作が混ざることがある
+- **関係は import を 3 段まで辿った範囲。** 辿り先は import した名前の定義だけを読む。
+  DI コンテナ・動的な呼び出し・変数で組み立てた URL は辿れない。設定オブジェクトを関数の中で渡しているだけの
+  箇所（`getServerSession(authOptions)`）は辿らないので、そこから先の連携は入口に付かないことがある
 - **業務上の名前と意味は機械では決まらない。** 注釈が無い項目は「未確認」として残る
 - **機械照合は作文しか検出できない。** 説明の誤りは人間が読んで見つける
 

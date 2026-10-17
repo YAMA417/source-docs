@@ -269,5 +269,96 @@ class IntegrationTest(unittest.TestCase):
         self.assertNotIn("integrations", by_id(m)["endpoint:GET /api/x"])
 
 
+class RealWorldLessonsTest(unittest.TestCase):
+    """実在の OSS（shadcn-ui/taxonomy・strapi/foodadvisor）で見つけた不具合の再発防止。"""
+
+    def test_prisma_map_name_and_migration_are_one_table(self):
+        m = analyze_files({
+            "package.json": json.dumps({"dependencies": {"@prisma/client": "5"}}),
+            "prisma/schema.prisma": 'datasource db {\n  provider = "mysql"\n  url = env("DATABASE_URL")\n}\n'
+                                    'model User {\n  id String @id\n  name String?\n  @@map(name: "users")\n}\n',
+            "prisma/migrations/1_init/migration.sql":
+                "CREATE TABLE `users` (`id` VARCHAR(191) NOT NULL, `name` VARCHAR(191) NULL, PRIMARY KEY (`id`));\n",
+        })
+        self.assertEqual(ids(m, "tables"), ["table:users"])
+        users = by_id(m)["table:users"]
+        self.assertEqual([(c["name"], c["type"]) for c in users["columns"]],
+                         [("id", "VARCHAR(191)"), ("name", "VARCHAR(191)")])  # マイグレーションを正とする
+        self.assertEqual(users["primaryKey"], ["id"])
+        self.assertEqual(m["applications"][0]["stack"]["db"], ["MySQL"])
+
+    def test_url_helper_prefix(self):
+        m = analyze_files({
+            "client/package.json": json.dumps({"dependencies": {"next": "13"}}),
+            "client/utils/index.js": "export function getStrapiURL(path) {\n  return `${\n"
+                                     "    process.env.NEXT_PUBLIC_API_URL || 'http://localhost:1337'\n  }/api${path}`;\n}\n",
+            "client/pages/blog.js": "import { getStrapiURL } from '../utils';\n"
+                                    "export default function Blog() { return null }\n"
+                                    "export async function getServerSideProps() {\n"
+                                    "  await fetch(getStrapiURL(`/articles?populate=*`));\n  return { props: {} };\n}\n",
+            "client/pages/api/articles.js": "export default function h(req, res) { if (req.method === 'GET') {} }\n",
+        })
+        self.assertEqual([r["id"] for r in by_id(m)["screen:/blog"]["calls"]], ["endpoint:GET /api/articles"])
+
+    def test_only_the_imported_function_is_followed(self):
+        m = analyze_files({
+            "package.json": json.dumps({"dependencies": {"next": "15", "drizzle-orm": "0.36"}}),
+            "src/schema.ts": "export const a = pgTable('a', { id: serial('id') });\n"
+                             "export const b = pgTable('b', { id: serial('id') });\n",
+            "src/repo.ts": "import { a, b } from './schema';\n"
+                           "export async function listA() {\n  return db.select().from(a);\n}\n"
+                           "export async function removeB() {\n  return db.delete(b);\n}\n",
+            "app/api/a/route.ts": "import { listA } from '@/repo';\nexport async function GET() { return listA(); }\n",
+        })
+        get = by_id(m)["endpoint:GET /api/a"]
+        self.assertEqual([(r["id"], r["operations"]) for r in get["tables"]], [("table:a", ["READ"])])
+
+    def test_config_passed_inside_function_is_not_followed(self):
+        """`getServerSession(authOptions)` から認証設定の連携先を拾わない。入口を作る `NextAuth(authOptions)` は拾う。"""
+        m = analyze_files({
+            "package.json": json.dumps({"dependencies": {"next": "13", "next-auth": "4", "postmark": "3"}}),
+            "lib/auth.ts": "import { Client } from 'postmark';\nimport GitHubProvider from 'next-auth/providers/github';\n"
+                           "import { env } from '@/env.mjs';\n"
+                           "const postmarkClient = new Client(env.POSTMARK_API_TOKEN);\n"
+                           "export const authOptions = {\n  providers: [GitHubProvider({ clientId: env.GITHUB_CLIENT_ID }),\n"
+                           "    { send: () => postmarkClient.sendEmail({}) }],\n};\n",
+            "lib/session.ts": "import { getServerSession } from 'next-auth';\nimport { authOptions } from './auth';\n"
+                              "export async function getCurrentUser() {\n  const s = await getServerSession(authOptions);\n"
+                              "  return s?.user;\n}\n",
+            "app/dashboard/page.tsx": "import { getCurrentUser } from '@/lib/session';\n"
+                                      "export default async function D() { await getCurrentUser(); return null }\n",
+            "pages/api/auth/[...nextauth].ts": "import NextAuth from 'next-auth';\nimport { authOptions } from '@/lib/auth';\n"
+                                               "export default NextAuth(authOptions);\n",
+        })
+        idx = by_id(m)
+        self.assertNotIn("integrations", idx["screen:/dashboard"])
+        auth = idx["endpoint:ANY /api/auth/*nextauth"]
+        self.assertEqual(sorted(r["id"] for r in auth["integrations"]),
+                         ["integration:github-oauth", "integration:postmark"])
+        self.assertEqual(idx["integration:postmark"]["envVars"], ["POSTMARK_API_TOKEN"])
+        self.assertEqual(idx["integration:github-oauth"]["envVars"], ["GITHUB_CLIENT_ID"])
+
+
+class RealRunFeedbackTest(unittest.TestCase):
+    """実際の Claude Code でスキルを動かしたときに報告された問題の再発防止。"""
+
+    def test_link_to_api_route_is_a_call(self):
+        m = analyze_files({
+            "package.json": NEXT,
+            "pages/index.js": "export default function H() { return <a href=\"/api/exit-preview\">x</a> }\n",
+            "pages/api/exit-preview.js": "export default function h(req, res) { if (req.method === 'GET') {} }\n",
+        })
+        home = by_id(m)["screen:/"]
+        self.assertEqual([r["id"] for r in home["calls"]], ["endpoint:GET /api/exit-preview"])
+        self.assertNotIn("unmatched", home)
+
+    def test_strapi_cron_enabled_without_tasks_is_reported(self):
+        m = analyze_files({
+            "package.json": json.dumps({"dependencies": {"@strapi/strapi": "4"}}),
+            "config/server.js": "module.exports = ({ env }) => ({\n  cron: { enabled: true, tasks: plugin },\n});\n",
+        })
+        self.assertTrue(any("cron が有効" in u["reason"] for u in m["unsupported"]))
+
+
 if __name__ == "__main__":
     unittest.main()

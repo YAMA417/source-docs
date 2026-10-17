@@ -165,11 +165,21 @@ class JsLanguage(Adapter):
 
     # --- 使っているもの --------------------------------------------------------
 
+    def collect(self, app, b):
+        """URL を組み立てる補助関数（`getStrapiURL(path)` → `${BASE}/api${path}`）を集める。"""
+        helpers = {}
+        for rel in app.files:
+            if is_js(rel):
+                helpers.update(url_helpers(strip_comments(app.read(rel))))
+        self._helpers = getattr(self, "_helpers", {})
+        self._helpers[app.id] = helpers
+
     def usages(self, app, rel, text):
         if not is_js(rel):
             return []
         text = strip_comments(text)
-        return list(_calls(text)) + list(_navigations(text))
+        helpers = getattr(self, "_helpers", {}).get(app.id, {})
+        return list(_calls(text)) + list(_helper_calls(text, helpers)) + list(_navigations(text))
 
 
 def _strip_json_comments(text):
@@ -217,6 +227,48 @@ def _calls(text):
             continue
         yield {"kind": "call", "method": m.group(2).upper(), "path": path,
                "methodSource": "client", "offset": m.start()}
+
+
+# 引数をそのまま末尾に連結した URL を返す関数。
+#   function getStrapiURL(path) { return `${BASE}/api${path}` }
+#   const apiUrl = (p) => `${BASE}/v1${p}`
+RE_URL_HELPER = re.compile(
+    r"(?:function\s+(\w+)\s*\(\s*(\w+)[^)]*\)\s*\{\s*return\s*`([^`]*)`"
+    r"|(?:const|let)\s+(\w+)\s*=\s*\(?\s*(\w+)[^)=]*\)?\s*=>\s*\{?\s*(?:return\s*)?`([^`]*)`)")
+
+
+def url_helpers(text):
+    """{関数名: 前置パス}。テンプレートの末尾が `${引数}` のものだけを採る。"""
+    out = {}
+    for m in RE_URL_HELPER.finditer(text):
+        name, param, template = (m.group(1), m.group(2), m.group(3)) if m.group(1) else \
+            (m.group(4), m.group(5), m.group(6))
+        tail = re.search(r"\$\{\s*" + re.escape(param) + r"\s*\}\s*$", template)
+        if not tail:
+            continue
+        prefix = re.sub(r"^\$\{[^}]*\}", "", template[:tail.start()].strip())
+        prefix = re.sub(r"^https?://[^/]*", "", prefix)
+        if prefix == "" or (prefix.startswith("/") and "${" not in prefix):
+            out[name] = prefix.rstrip("/")
+    return out
+
+
+def _helper_calls(text, helpers):
+    if not helpers:
+        return
+    rx = re.compile(r"\b(" + "|".join(map(re.escape, helpers)) + r""")\(\s*(['"`])(.*?)\2""", re.S)
+    for m in rx.finditer(text):
+        path = _path_of(m.group(3))
+        if not path:
+            continue
+        # 補助関数の結果を fetch に渡していれば、その fetch の method を読む
+        before = text[max(0, m.start() - 40):m.start()]
+        window = text[m.end():m.end() + 300]
+        method_m = RE_METHOD_OPTION.search(window[:window.find(")") + 200 if ")" in window else 300]) \
+            if re.search(r"\bfetch\(\s*$", before) else None
+        yield {"kind": "call", "method": method_m.group(1).upper() if method_m else "GET",
+               "path": helpers[m.group(1)] + path,
+               "methodSource": "option" if method_m else "default", "offset": m.start()}
 
 
 RE_NAV = [

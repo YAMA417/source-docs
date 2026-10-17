@@ -30,6 +30,18 @@ PARTICIPANT_KINDS = ("user", "screen", "frontend", "backend", "service", "db", "
                      "worker", "external")
 
 
+# 配列で書く項目と、各要素に必須のキー
+ENTITY_SHAPES = {
+    "request": ("name",), "responses": ("status",), "errors": ("status",), "validation": ("rule",),
+    "inputs": ("name",), "displays": ("name",), "actions": ("label",), "unverified": ("item",),
+}
+DETAIL_SHAPES = {
+    "preconditions": ("kind",), "inputs": ("name",), "validations": ("condition",),
+    "branches": ("condition",), "dataImpact": ("table", "operation"), "externalCalls": ("integration",),
+    "sideEffects": ("kind",), "files": ("path",), "unverified": ("item",),
+}
+
+
 def path(out_dir):
     return os.path.join(model_dir(out_dir), "annotations.json")
 
@@ -118,6 +130,18 @@ class Checker:
             if not u.get("searched"):
                 self.err(where, f"未確認「{u['item']}」に searched（調べた範囲）が無い")
 
+    def known(self, where, ref_id):
+        """注釈の対象（最上位のキー）が Project Model にあるか。
+
+        無い場合はエラーにしない。コードの変更や解析器の改善で候補が消えることは、資料を育てる
+        使い方では普通に起きる。そのたびに再生成ができなくなると資料が古いまま止まる。
+        警告として「古い注釈」を知らせ、その注釈だけを資料に反映しない。
+        """
+        if ref_id in self.idx:
+            return True
+        self.warn(where, f"古い注釈: Project Model に {ref_id} が無い（資料には反映しない。消すか付け直す）")
+        return False
+
     def ref(self, where, ref_id, prefix=None):
         if ref_id not in self.idx:
             self.err(where, f"Project Model に無い ID を参照している: {ref_id}")
@@ -163,17 +187,27 @@ class Checker:
         self._features()
         for ent_id, spec in (a.get("entities") or {}).items():
             where = f"entities.{ent_id}"
-            if not self.ref(where, ent_id):
+            if not self.known(where, ent_id):
                 continue
             self.evidence(where, spec.get("evidence"))
             self.unverified(where, spec.get("unverified"))
+            self._shape(where, spec, ENTITY_SHAPES)
+            for resp in spec.get("responses") or []:
+                if isinstance(resp, dict):
+                    self._shape(f"{where}.responses", resp, {"fields": ("name",)})
+            if spec.get("columns") is not None and not (
+                    isinstance(spec["columns"], dict)
+                    and all(isinstance(v, str) for v in spec["columns"].values())):
+                self.err(where, 'columns は {"カラム名": "説明"} の形で書く')
+            if not all(isinstance(act, dict) for act in spec.get("actions") or []):
+                continue  # 形の誤りは _shape が報告済み
             for act in spec.get("actions", []) or []:
                 if act.get("api"):
                     self.ref(f"{where}.actions", act["api"], "endpoint")
                 if act.get("to"):
                     self.ref(f"{where}.actions", act["to"], "screen")
         for ex in a.get("exclusions") or []:
-            if self.ref("exclusions", ex.get("id", "")) and not ex.get("reason"):
+            if self.known("exclusions", ex.get("id", "")) and not ex.get("reason"):
                 self.err("exclusions", f"{ex['id']} に除外の理由（reason）が無い")
 
         features = {f["id"]: f for f in apply_annotations(self.model, a)}
@@ -199,29 +233,60 @@ class Checker:
             names.add(spec.get("name"))
             if spec.get("entrypoints"):
                 for ep in spec["entrypoints"]:
-                    self.ref(where, ep, "entrypoint")
+                    if not ep.startswith("entrypoint:"):
+                        self.err(where, f"entrypoints には entrypoint の ID を書く: {ep}")
+                    else:
+                        self.known(where, ep)
                 for r in spec.get("replaces", []):
                     if r not in candidates:
                         self.err(where, f"replaces に候補に無い機能がある: {r}")
             elif fid not in candidates:
-                self.err(where, "候補に無い ID。新しくまとめるなら entrypoints を書く")
+                self.warn(where, "古い注釈: 候補に無い ID（資料には反映しない）。"
+                                 "新しくまとめるなら entrypoints を書く")
             self.evidence(where, spec.get("evidence"))
 
     def _flow(self, fid, spec, features):
         where = f"flows.{fid}"
         if fid not in features:
-            self.err(where, "機能が存在しない")
+            self.warn(where, "古い注釈: 機能が存在しない（資料には反映しない）")
             return
+        self._shape(where, spec, {"inputs": ("name",), "outputs": ("name",), "failures": ("condition",),
+                                  "unverified": ("item",)})
         steps = spec.get("steps") or []
+        if not all(isinstance(x, str) for x in steps):
+            self.err(where, "steps は文字列の配列で書く")
         if len(steps) > 5:
             self.err(where, f"処理の要点は 5 行まで（{len(steps)} 行ある）。それ以上は detail に書く")
         self.evidence(where, spec.get("evidence"))
         self.unverified(where, spec.get("unverified"))
 
+    def _shape(self, where, spec, shapes):
+        """配列で書く項目が、オブジェクトの配列になっているか。描画で落ちないよう先に止める。"""
+        if not isinstance(spec, dict):
+            self.err(where, "オブジェクトで書く")
+            return False
+        ok = True
+        for key, required in shapes.items():
+            value = spec.get(key)
+            if value is None:
+                continue
+            if not isinstance(value, list) or not all(isinstance(x, dict) for x in value):
+                self.err(where, f"{key} はオブジェクトの配列で書く（例: [{{\"{required[0] if required else 'name'}\": \"…\"}}]）")
+                ok = False
+                continue
+            for i, x in enumerate(value):
+                missing = [k for k in required if not x.get(k) and x.get(k) != 0]
+                if missing:
+                    self.err(where, f"{key}[{i}] に {', '.join(missing)} が無い")
+                    ok = False
+        return ok
+
     def _detail(self, fid, d, features):
         where = f"details.{fid}"
         if fid not in features:
-            self.err(where, "機能が存在しない")
+            self.warn(where, "古い注釈: 機能が存在しない（資料には反映しない）")
+            return
+        if not self._shape(where, d, DETAIL_SHAPES):
             return
         for i, p in enumerate(d.get("preconditions") or []):
             if p.get("kind") not in PRECONDITION_KINDS:

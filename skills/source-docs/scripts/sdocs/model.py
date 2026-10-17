@@ -69,6 +69,7 @@ class Builder:
         self._entrypoints = {}                          # uid -> entrypoint
         self.unsupported = []
         self.table_aliases = {}                         # alias -> set(uid)
+        self.stack_hints = {}                           # app id -> {区分: set(表示名)}
 
     # --- 基本 -------------------------------------------------------------
 
@@ -111,6 +112,10 @@ class Builder:
         item["status"] = "unresolved"
         if reason not in item["unresolved"]:
             item["unresolved"].append(reason)
+
+    def add_stack_hint(self, app, kind, label):
+        """manifest の依存名以外から分かったスタック（Prisma の datasource など）。"""
+        self.stack_hints.setdefault(app["id"], {}).setdefault(kind, set()).add(label)
 
     def add_unsupported(self, app, file, kind, reason):
         entry = {"kind": kind, "file": file, "reason": reason,

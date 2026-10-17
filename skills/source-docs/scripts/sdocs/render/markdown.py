@@ -526,6 +526,9 @@ def render_database(ctx):
     return "\n".join(lines) + "\n"
 
 
+# ER 図の記法。左がこのテーブル、右が参照先
+ER_RELATION = {"fk": "}o--||", "oneToOne": "||--||", "oneToMany": "||--o{", "manyToOne": "}o--||",
+               "manyToMany": "}o--o{", "morphToMany": "}o--o{", "morphToOne": "}o--||"}
 _KIND = {"table": "テーブル", "view": "ビュー", "materialized-view": "マテリアライズドビュー"}
 
 
@@ -543,7 +546,8 @@ def _er_diagrams(ctx, tables):
         for rel in t.get("relations", []):
             target = rel.get("targetTable")
             if target in by_name:
-                edges.append((t["key"], target, f"{rel['attribute']} ({rel.get('relation')})", "rel"))
+                edges.append((t["key"], target, f"{rel['attribute']} ({rel.get('relation')})",
+                              rel.get("relation") or "rel"))
     groups = mm.pack(mm.components(names, [(a, b) for a, b, _, _ in edges]))
     out = []
     if len(groups) > 1:
@@ -567,10 +571,17 @@ def _er_diagrams(ctx, tables):
                 lines.append(f"        {mm.er_type(c['type'])} {mm.ident(c['name'], 'c')}"
                              + (f" {','.join(keys)}" if keys else ""))
             lines.append("    }")
+        drawn = set()
         for a, b, label, kind in edges:
-            if a in members and b in members:
-                rel = "}o--||" if kind == "fk" else "}o--o{"
-                lines.append(f'    {mm.ident(a, "t")} {rel} {mm.ident(b, "t")} : "{mm.label(label)}"')
+            if a not in members or b not in members:
+                continue
+            # 双方向に宣言されたリレーション（oneToMany と manyToOne の組）は 1 本だけ描く
+            pair = frozenset((a, b))
+            if kind != "fk" and pair in drawn:
+                continue
+            drawn.add(pair)
+            rel = ER_RELATION.get(kind, "}o--o{")
+            lines.append(f'    {mm.ident(a, "t")} {rel} {mm.ident(b, "t")} : "{mm.label(label)}"')
         out += [mm.block(lines), ""]
     return out
 
