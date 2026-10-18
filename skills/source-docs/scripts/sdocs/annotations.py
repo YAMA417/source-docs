@@ -185,6 +185,7 @@ class Checker:
                 self.evidence(f"applications.{app_id}", spec.get("evidence"))
 
         self._features()
+        self._missing()
         for ent_id, spec in (a.get("entities") or {}).items():
             where = f"entities.{ent_id}"
             if not self.known(where, ent_id):
@@ -217,6 +218,37 @@ class Checker:
             self._detail(fid, spec, features)
         self._secrets()
         return self
+
+    def _missing(self):
+        """注釈が足りない API・画面・テーブルを数える。資料が「未確認」だらけになるのを防ぐ。"""
+        notes = self.ann.get("entities") or {}
+        excluded = {e.get("id") for e in self.ann.get("exclusions") or []}
+        gaps = {"API": [], "画面": [], "テーブル": []}
+        for e in self.model["endpoints"]:
+            n = notes.get(e["id"]) or {}
+            if e["id"] in excluded:
+                continue
+            need = ["summary"] if not e.get("spec") else []
+            if not e.get("spec"):
+                if not (n.get("request") or n.get("noRequest")):
+                    need.append("request")
+                if not n.get("responses"):
+                    need.append("responses")
+            if not n.get("summary") and "summary" not in need:
+                need.append("summary")
+            if need and not all(n.get(k) for k in need):
+                gaps["API"].append(e["id"])
+        for s in self.model["screens"]:
+            n = notes.get(s["id"]) or {}
+            if s["id"] not in excluded and not (n.get("name") and n.get("summary")):
+                gaps["画面"].append(s["id"])
+        for t in self.model["tables"]:
+            if t["id"] not in excluded and not (notes.get(t["id"]) or {}).get("summary"):
+                gaps["テーブル"].append(t["id"])
+        for kind, ids in gaps.items():
+            if ids:
+                more = f" ほか {len(ids) - 8} 件" if len(ids) > 8 else ""
+                self.warn("entities", f"注釈の無い{kind}が {len(ids)} 件: {', '.join(ids[:8])}{more}")
 
     def _features(self):
         names = set()
