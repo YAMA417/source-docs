@@ -38,6 +38,8 @@ CHECKS = {
 
 
 def strip_mermaid(doc):
+    """照合しない部分を除く。図と、資料末尾の「未確定」（確定していないと断って載せた事実）。"""
+    doc = re.sub(r"^## 未確定\n.*?(?=^## |\Z)", "", doc, flags=re.M | re.S)
     return RE_MERMAID_BLOCK.sub("", doc)
 
 

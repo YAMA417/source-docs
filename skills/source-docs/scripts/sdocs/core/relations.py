@@ -377,6 +377,11 @@ def _apply(b, lookup, app, item, u, ev, status):
                         if e["_uid"] != item["_uid"] and e["app"] != item["app"]]
             if prefixed:
                 found, status = prefixed, "inferred"
+        if len(found) > 1 and u.get("based") is False:
+            # `fetch("/api/snaps")` のようにホストを書かない呼び出しは、同じアプリ（同じオリジン）の API に届く
+            same = [e for e in found if e["app"] == item["app"]]
+            if len(same) == 1:
+                found, status = same, "inferred"
         if len(found) == 1:
             b.relate(item, "calls", found[0]["_uid"], ev, status=status)
         elif found:

@@ -1,5 +1,5 @@
 {
-  "description": "アプリをまたぐ呼び出し。行き先が 1 つに決まらないものは本文に出さず、候補つきで未確定にする",
+  "description": "アプリをまたぐ呼び出し。ホストを書かない呼び出しは同じアプリの API と推定し、ベース URL 付きで行き先が 1 つに決まらないものは本文に出さず、候補つきで未確定にする",
   "entities": {
     "endpoints": [
       "endpoint:GET /api/items",
@@ -20,6 +20,12 @@
       "field": "calls",
       "to": "endpoint:GET /api/items",
       "status": "confirmed"
+    },
+    {
+      "from": "screen:/@apps/web",
+      "field": "calls",
+      "to": "endpoint:GET /health@apps/web",
+      "status": "inferred"
     }
   ],
   "absentRelations": [
@@ -27,11 +33,6 @@
       "from": "screen:/@apps/web",
       "field": "calls",
       "to": "endpoint:GET /health@apps/api"
-    },
-    {
-      "from": "screen:/@apps/web",
-      "field": "calls",
-      "to": "endpoint:GET /health@apps/web"
     }
   ],
   "pending": [

@@ -17,12 +17,14 @@ from .javascript import is_js
 RE_SESSION = re.compile(
     r"\b(?:getServerSession|getSession|unstable_getServerSession|getCurrentUser|currentUser|getToken|"
     r"getAuth|getUserSession|requireUser|requireSession|validateRequest)\s*\(|"
+    # プロジェクト独自の関数名（verifySession / requireAuth / getSessionUser …）
+    r"\b(?:verify|validate|require|check|get|fetch|load)(?:Session|Auth|CurrentUser|LoggedInUser|SessionUser)\w*\s*\(|"
     r"(?<![\w.])auth\s*\(\s*\)|\bsupabase\s*\.\s*auth\s*\.\s*getUser\s*\(|\breq\s*\.\s*(?:user|session)\b")
 
 # `if (!session)` / `if (!session?.user)` / `if (!user || ...)` に続く return / throw
 RE_BRANCH = re.compile(
     r"\bif\s*\(\s*!\s*\(?\s*(?:await\s+)?(?:session|user|currentUser|token|auth|userId|me|authUser)\b"
-    r"[\w?.!\[\]'\"]*\s*\)?\s*(?:\|\|[^)]{0,80})?\)\s*\{?\s*(return|throw)\b([^;\n]{0,200})")
+    r"[\w?.!\[\]'\"]*\s*\)?\s*(?:\|\|[^)]{0,80})?\)\s*\{?\s*(return|throw)\b([^;]{0,200})")
 RE_STATUS = re.compile(r"status\s*:\s*(\d{3})|\.status\(\s*(\d{3})\s*\)|\b(401|403)\b")
 
 

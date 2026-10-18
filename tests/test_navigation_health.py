@@ -359,6 +359,16 @@ class KidsPlayShapeTest(unittest.TestCase):
     def test_backend_admin_react_is_not_unread_screens(self):
         self.assertNotIn("screens", [u["kind"] for u in self.model["unsupported"]])
 
+    def test_project_session_helper_and_multiline_401(self):
+        """独自の `verifySession()` と、複数行の `return NextResponse.json(..., { status: 401 })` を読む。"""
+        files = dict(KIDS_PLAY_LIKE, **{"frontend/app/api/me/route.ts": (
+            "import { verifySession } from '@/lib/auth'\n"
+            "export async function GET() {\n  const session = await verifySession()\n  if (!session) {\n"
+            "    return NextResponse.json(\n      { error: 'ログインが必要です' },\n      { status: 401 }\n    )\n  }\n"
+            "  return NextResponse.json(session)\n}\n")})
+        ep = [e for e in analyze_files(files)["endpoints"] if "/api/me" in e["id"]][0]
+        self.assertEqual((ep["authCheck"]["unauthenticatedStatus"], ep["authCheck"]["status"]), (401, "confirmed"))
+
     def test_request_header_is_not_a_conflict(self):
         """入力検証のスキーマ（本文）に無いヘッダーを、注釈に書いても矛盾にしない。"""
         files = dict(KIDS_PLAY_LIKE, **{"frontend/app/api/hook/route.ts": (

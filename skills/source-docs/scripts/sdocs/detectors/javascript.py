@@ -219,14 +219,16 @@ def _calls(text):
         close = window.find(")")
         method_m = RE_METHOD_OPTION.search(window[:close if close != -1 else 300])
         method = method_m.group(1).upper() if method_m else None
+        # `${BASE}/x` は別のオリジン（Strapi など）かもしれない。ホストを書かない `/x` だけが同じアプリに届く
         yield {"kind": "call", "method": method or "GET", "path": path,
-               "methodSource": "option" if method_m else "default", "offset": m.start()}
+               "methodSource": "option" if method_m else "default", "offset": m.start(),
+               "based": m.group(2).strip().startswith("${")}
     for m in RE_CLIENT.finditer(text):
         path = _path_of(m.group(4))
         if not path:
             continue
         yield {"kind": "call", "method": m.group(2).upper(), "path": path,
-               "methodSource": "client", "offset": m.start()}
+               "methodSource": "client", "offset": m.start(), "based": True}
 
 
 # 引数をそのまま末尾に連結した URL を返す関数。
