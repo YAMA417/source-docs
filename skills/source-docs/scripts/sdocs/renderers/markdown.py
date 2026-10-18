@@ -771,7 +771,10 @@ def _table_section(ctx, t, uv):
             keys.append("PK")
         fk = fk_cols.get(c["name"])
         if fk:
-            keys.append(f"FK → {fk['references']['table']}.{', '.join(fk['references']['columns']) or '?'}")
+            ref_cols = ", ".join(fk["references"]["columns"])
+            # `REFERENCES auth.users` のように列を書かないと、参照先の主キーを指す
+            keys.append(f"FK → {fk['references']['table']}." + ref_cols if ref_cols
+                        else f"FK → {fk['references']['table']}（主キー）")
         if c["unique"]:
             keys.append("UK")
         nullable = UNK if c["nullable"] is None else ("可" if c["nullable"] else "不可")

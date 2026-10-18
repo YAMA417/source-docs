@@ -266,6 +266,20 @@ class SchemaQualifiedReferenceTest(unittest.TestCase):
         view = resolve(model, {})
         self.assertEqual([d for d in view["diagnostics"] if d["severity"] == "ERROR"], [])
 
+    def test_same_fk_in_schema_and_migration_is_drawn_once(self):
+        sql = "create table users (id uuid references auth.users not null primary key);\n"
+        model = analyze_files({"package.json": '{"dependencies": {"@supabase/supabase-js": "2"}}',
+                               "schema.sql": sql, "supabase/migrations/0001_init.sql": sql})
+        users = [t for t in model["tables"] if t["key"] == "users"][0]
+        self.assertEqual(len(users["physicalForeignKeys"]), 1)
+        out = tempfile.mkdtemp(prefix="sd-fk-")
+        try:
+            render_docs(resolve(model, {}), out, only=["database"])
+            doc = read(os.path.join(out, "database.md"))
+            self.assertIn("FK → auth.users（主キー）", doc)
+        finally:
+            shutil.rmtree(out, ignore_errors=True)
+
 
 class AdditionsTest(unittest.TestCase):
     """解析器が読めない書き方でも、Claude が読んで根拠つきで足せば資料になる（使っているサービスに依らない）。"""
