@@ -66,6 +66,15 @@ def split_qname(qname):
     return (parts[0], parts[1]) if len(parts) == 2 else (None, parts[0])
 
 
+def qualified(qname):
+    """参照先のテーブル名。public 以外のスキーマ（Supabase の auth.users など）は付けたまま返す。
+
+    スキーマを捨てると、別のスキーマにある同じ名前のテーブル（public.users）と取り違える。
+    """
+    schema, name = split_qname(qname)
+    return f"{schema}.{name}" if schema and schema.lower() != "public" else name
+
+
 def statements(text):
     """`;` で文に分ける。文字列・`$$` 本体・コメントの中の `;` では切らない。"""
     out, buf, i, n = [], [], 0, len(text)
@@ -132,7 +141,7 @@ def _parse_column(defn):
     ref = re.search(rf"\bREFERENCES\s+{QNAME}\s*(?:\(\s*({IDENT})\s*\))?", rest, re.I)
     references = None
     if ref:
-        _, rtable = split_qname(ref.group(1))
+        rtable = qualified(ref.group(1))
         references = {"table": rtable, "column": unquote(ref.group(2)) if ref.group(2) else None}
     primary = "PRIMARY KEY" in re.sub(r"\s+", " ", upper)
     nullable = None
@@ -176,7 +185,7 @@ def _table_constraint(table, defn):
         return True
     fk = re.match(rf"FOREIGN\s+KEY\s*\(([^)]*)\)\s*REFERENCES\s+{QNAME}\s*(?:\(([^)]*)\))?", d, re.I)
     if fk:
-        _, rtable = split_qname(fk.group(2))
+        rtable = qualified(fk.group(2))
         table["physicalForeignKeys"].append({
             "name": name, "columns": _cols(fk.group(1)),
             "references": {"table": rtable, "columns": _cols(fk.group(3) or "")}, "source": SOURCE})

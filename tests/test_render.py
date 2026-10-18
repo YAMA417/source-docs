@@ -172,7 +172,7 @@ class ErSplitTest(unittest.TestCase):
             render_docs(resolve(m, {}), out, only=["database"])
             text = open(os.path.join(out, "database.md"), encoding="utf-8").read()
             self.assertGreaterEqual(text.count("erDiagram"), 3)
-            self.assertIn("つながりの塊ごとに", text)
+            self.assertIn("1 枚の図に描くのは 12 テーブルまで", text)
             for block in re.findall(r"```mermaid\nerDiagram\n(.*?)```", text, re.S):
                 self.assertLessEqual(block.count(" {\n"), mm.MAX_NODES)
         finally:
@@ -206,7 +206,7 @@ class StrapiApiSpecTest(unittest.TestCase):
         try:
             from sdocs.validators.annotations import check
             warnings = check(docs.model, docs.annotations(), docs.out).warnings
-            self.assertTrue(any("注釈の無いAPIが 2 件" in w for w in warnings), warnings)
+            self.assertTrue(any("注釈が足りないAPIが 2 件" in w for w in warnings), warnings)
         finally:
             docs.cleanup()
 

@@ -19,6 +19,7 @@ detection で区別するもの。
 import os
 import re
 
+from ..core import additions
 from ..core.model import normalize_path
 from ..core.resolve import resolve
 from ..core.status import ACCEPTED
@@ -136,6 +137,7 @@ def _kind_result():
 
 
 def compute(model, annotations, out_dir, view=None):
+    model = additions.merge(model, annotations)
     view = view or resolve(model, annotations)
     texts = read_docs(out_dir)
     docs = DocIndex(texts)

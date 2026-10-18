@@ -110,6 +110,11 @@ def _pyproject(text):
                 deps.add(m.group(1).lower())
             continue
         if stripped.startswith("dependencies"):
+            inline = re.search(r"\[(.*)\]", stripped)
+            if inline:    # 1 行で書いた `dependencies = ["fastapi", "sqlmodel"]`
+                for name in re.findall(r"[\"']([A-Za-z0-9_.\-]+)", inline.group(1)):
+                    deps.add(name.lower())
+                continue
             in_pep621 = True
             continue
         if in_pep621:

@@ -6,7 +6,7 @@
 | --- | --- | --- |
 | model | Project Model が壊れている・版が違う | ERROR |
 | annotation | 注釈の誤り（存在しない ID・根拠の無い implemented…） | ERROR |
-| annotation | 古い注釈・注釈の無い API | WARNING |
+| annotation | 古い注釈・注釈が足りない API | WARNING |
 | secret | 注釈・資料（Markdown / JSON / HTML）に認証情報らしき値がある | ERROR |
 | conflict | 根拠どうしが矛盾している事実がある | ERROR |
 | db / relation | ORM と migration の食い違い、行き先の決まらない関係 | WARNING |
@@ -73,7 +73,8 @@ def run(out_dir, strict=False, thresholds=None, reanalyze=True):
 
     docs = cov_mod.read_docs(out_dir)
     for p, items in sorted(sec_mod.scan_paths([out_dir]).items()):
-        for f in sec_mod.masked(items):
+        # 例示用のドメイン（example.com など）だと分かるものは機密ではない
+        for f in sec_mod.masked([x for x in items if not x["looksDummy"]]):
             rel = os.path.relpath(p, out_dir).replace(os.sep, "/")
             diags.append(diagnostic("ERROR", "secret.docs", f"{rel} L{f['line']} [{f['label']}] {f['value']}"))
 

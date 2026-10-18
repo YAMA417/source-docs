@@ -287,7 +287,7 @@ class BackgroundTest(unittest.TestCase):
             "src/workers/idle.ts": "export const x = 1;\n",
         })
         self.assertEqual(m["jobs"], [])
-        self.assertEqual(m["unsupported"][0]["kind"], "worker")
+        self.assertIn("worker", [u["kind"] for u in m["unsupported"]])
 
 
 class PythonTest(unittest.TestCase):

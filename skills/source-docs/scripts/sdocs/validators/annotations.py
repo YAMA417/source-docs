@@ -17,7 +17,7 @@ import json
 import os
 
 from .. import ANNOTATIONS_SCHEMA, ANNOTATIONS_VERSION
-from ..core import security
+from ..core import additions as additions_mod, security
 from ..core.features import apply_annotations, entrypoint_ref, feature_specs
 from ..core.model import OPERATIONS, index, model_dir
 from ..core.resolve import DISPUTE_FIELDS
@@ -126,6 +126,46 @@ class Checker:
             if not ok:
                 self.err(where, f"根拠のファイルが存在しない: {file}")
 
+    def _additions(self):
+        """解析器が読めなかった実体を Claude が足す（core/additions.py）。根拠の行に名前があるかを照合する。"""
+        for i, spec in enumerate(self.ann.get("additions") or []):
+            where = f"additions[{i}]"
+            if not isinstance(spec, dict) or spec.get("kind") not in additions_mod.KINDS:
+                self.err(where, f"kind は {' / '.join(additions_mod.KINDS)} のどれか")
+                continue
+            required = {"table": ("name",), "endpoint": ("method", "path"), "screen": ("route",),
+                        "integration": ("name",)}[spec["kind"]]
+            missing = [k for k in required if not spec.get(k)]
+            if missing:
+                self.err(where, f"{spec['kind']} には {'・'.join(missing)} が要る")
+                continue
+            if not spec.get("evidence"):
+                self.err(where, "根拠（evidence: [\"file:line\"]）が無い。コードのどこに書いてあるかを挙げる")
+                continue
+            self.evidence(where, spec["evidence"])
+            words = [w for w in additions_mod.needles(spec) if w]
+            if not any(self._line_has(normalize_evidence(ev), words) for ev in spec["evidence"]):
+                self.err(where, f"根拠の行（前後 3 行）に {words[0]} が書かれていない。読んだ行を根拠にする")
+
+    def _line_has(self, ev, words):
+        if not isinstance(ev, dict) or not ev.get("file"):
+            return False
+        for root in self.repo_roots.values():
+            full = os.path.join(root, *ev["file"].split("/"))
+            if not (os.path.isfile(full) and security.is_inside(root, full)
+                    and not security.is_unsafe_to_open(full)):
+                continue
+            with open(full, encoding="utf-8", errors="replace") as f:
+                lines = f.read().splitlines()
+            if ev.get("line"):
+                lo = max(0, ev["line"] - 4)
+                text = "\n".join(lines[lo:ev["line"] + 3])
+            else:
+                text = "\n".join(lines)
+            if any(w in text for w in words):
+                return True
+        return False
+
     def unverified(self, where, items):
         for u in items or []:
             if not isinstance(u, dict) or not u.get("item"):
@@ -192,6 +232,7 @@ class Checker:
 
         self._features()
         self._capabilities()
+        self._additions()
         self._disputes()
         self._missing()
         for ent_id, spec in (a.get("entities") or {}).items():
@@ -244,8 +285,12 @@ class Checker:
                     need.append("responses")
             if not n.get("summary") and "summary" not in need:
                 need.append("summary")
-            if need and not all(n.get(k) for k in need):
-                gaps["API"].append(e["id"])
+            # 入出力をライブラリが決める API（NextAuth の受け口など）は、未確認（library-owned）に書けば足りる
+            if any(isinstance(u, dict) and u.get("kind") == "library-owned" for u in n.get("unverified") or []):
+                need = [k for k in need if k == "summary"]
+            missing = [k for k in need if not n.get(k)]
+            if missing:
+                gaps["API"].append(f"{e['id']}（{'・'.join(missing)}）")
         for s in self.model["screens"]:
             n = notes.get(s["id"]) or {}
             if s["id"] not in excluded and not (n.get("name") and n.get("summary")):
@@ -256,7 +301,7 @@ class Checker:
         for kind, ids in gaps.items():
             if ids:
                 more = f" ほか {len(ids) - 8} 件" if len(ids) > 8 else ""
-                self.warn("entities", f"注釈の無い{kind}が {len(ids)} 件: {', '.join(ids[:8])}{more}")
+                self.warn("entities", f"注釈が足りない{kind}が {len(ids)} 件: {', '.join(ids[:8])}{more}")
 
     def _capabilities(self):
         raw = self.ann.get("capabilities") or {}
@@ -430,4 +475,4 @@ class Checker:
 
 
 def check(model, annotations, out_dir):
-    return Checker(model, annotations, out_dir).run()
+    return Checker(additions_mod.merge(model, annotations), annotations, out_dir).run()

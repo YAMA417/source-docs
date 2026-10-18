@@ -8,6 +8,7 @@
 資料どうしは同じモデルを見ているので、API の一覧と機能一覧と画面一覧で数や名前が食い違わない。
 """
 
+from ..core.facts import FIELD_PREDICATE, about as facts_about
 from ..core.features import TYPE_LABEL, feature_slug
 from ..core.model import OPERATIONS, index
 from ..core.status import PENDING_FIELD, STATUS_LABEL as FACT_STATUS, UNVERIFIED_LABEL
@@ -138,6 +139,9 @@ def header(ctx, title, purpose):
     return lines
 
 
+ENTITY_KIND = {"endpoint": "API", "screen": "画面", "table": "テーブル", "integration": "外部連携", "job": "ジョブ"}
+
+
 class Unverified:
     """資料末尾の 2 つの一覧。
 
@@ -166,14 +170,38 @@ class Unverified:
             self.pending.append(row)
 
     def from_entity(self, ctx, entity_id, label=None):
-        item = ctx.idx.get(entity_id) or {}
         target = label or entity_id
+        self.pending_of(ctx, entity_id, target)
+        item = ctx.idx.get(entity_id) or {}
+        pending = {FIELD_PREDICATE.get(p["field"], p["field"]): p["field"] for p in item.get("pending", [])}
+        for u in ctx.note(entity_id).get("unverified") or []:
+            preds = {pr for _, pr, _ in facts_about(item, u.get("item"), u.get("about"))} if item else set()
+            same = [pending[pr] for pr in preds if pr in pending]
+            if same:
+                # 未確定に載せた事実と同じものを注釈でも「分からない」と言っている。2 か所に分けず、未確定の行に説明を足す
+                self._explain_pending(target, same, u)
+                continue
+            self.add(target, u["item"], u.get("searched"), u.get("kind") or "unresolved")
+
+    def _explain_pending(self, target, fields, u):
+        labels = {PENDING_FIELD.get(f, f) for f in fields}
+        extra = u.get("searched") or u.get("item")
+        for i, row in enumerate(self.pending):
+            if row[0] == target and row[1] in labels and extra not in row[4]:
+                self.pending[i] = row[:4] + (f"{row[4]}。注釈: {extra}",) + row[5:]
+
+    def pending_of(self, ctx, entity_id, target):
+        """実体の未確定（実体そのものと、その関係・値）を未確定の一覧に足す。"""
+        item = ctx.idx.get(entity_id) or {}
+        # 実体そのものが確定できない（HTTP メソッドが決まらない など）。未解決の事実なので未確定に置く
         for reason in item.get("unresolved", []):
-            self.add(target, reason, _searched(item))
+            row = (target, ENTITY_KIND.get(entity_id.split(":", 1)[0], "実体"), code(entity_label(ctx, entity_id)),
+                   FACT_STATUS.get(item.get("status"), FACT_STATUS["unresolved"]), reason,
+                   _ev_cell(item.get("evidence", [])[:3]))
+            if row not in self.pending:
+                self.pending.append(row)
         for p in item.get("pending", []):
             self.add_pending(ctx, target, p)
-        for u in ctx.note(entity_id).get("unverified") or []:
-            self.add(target, u["item"], u.get("searched"), u.get("kind") or "unresolved")
 
     def from_list(self, target, items):
         for u in items or []:
@@ -181,7 +209,7 @@ class Unverified:
 
     def render(self):
         lines = ["## 未確定", "",
-                 "コードに候補や根拠はあるが、確定できなかった事実。本文には載せていない。", ""]
+                 "コードに候補や根拠はあるが、確定できなかった事実。本文では確定した事実として扱っていない。", ""]
         if self.pending:
             lines += [table(["対象", "項目", "値", "状態", "理由", "根拠"], self.pending), ""]
         else:
@@ -427,9 +455,11 @@ def _architecture_diagram(ctx):
                 lines.append(f"    {app_nodes[app_id]} -->|スキーマを定義| db")
     for i, integ in enumerate(m["integrations"]):
         nid = f"ext{i}"
-        lines.append(f'    {nid}(["{mm.label(integ["name"])}"])')
         users = {e["app"] for coll in ("screens", "endpoints", "jobs", "entrypoints")
                  for e in m[coll] if any(r["id"] == integ["id"] for r in e.get("integrations", []))}
+        if not users & set(app_nodes):
+            continue    # どのアプリから使うか分からない連携先は、線の無い箱になるので描かない（外部連携の資料に載る）
+        lines.append(f'    {nid}(["{mm.label(integ["name"])}"])')
         for app_id in sorted(users):
             if app_id not in app_nodes:
                 continue
@@ -498,8 +528,8 @@ def render_features(ctx):
         lines += [table(["項目", "内容"], rows), ""]
         if len(f["entrypoints"]) + len(f["tables"]) + len(f["integrations"]) + len(f["events"]) >= 3:
             lines += [_feature_diagram(ctx, f), ""]
-        for note in f["unresolved"]:
-            uv.add(feature_name(f), note, "自動解析で入口から import を 3 段までたどった範囲")
+        for eid in f.get("pendingFrom", []):
+            uv.pending_of(ctx, eid, f"{feature_name(f)}（{code(entity_label(ctx, eid))}）")
     unnamed = [feature_name(f) for f in ctx.features if f["nameSource"] != "annotation"]
     if unnamed:
         more = f" ほか {len(unnamed) - 5} 件" if len(unnamed) > 5 else ""
@@ -581,8 +611,15 @@ def render_database(ctx):
     lines.append(f"- DB: {', '.join(dbs) if dbs else UNK}")
     if not dbs:
         uv.add("DB", "DB の種類", "manifest の依存名から判定できなかった")
-    lines.append(f"- テーブル {len(tables)} 件、ビュー {len(views)} 件、Enum {len(m['enums'])} 件、"
-                 f"シーケンス {len(m['sequences'])} 件")
+    unread = [u for u in m.get("unsupported", []) if u["kind"] == "tables"]
+    if unread and not m["tables"]:
+        # 読めなかったものを「0 件」と確定して書かない
+        lines.append(f"- テーブル: {UNK}（DB の定義を読み取れなかった。末尾の「未確認」を参照）")
+        for u in unread:
+            uv.add("DB", "テーブルの定義", f"`{u['file']}`: {u['reason']}", "unsupported")
+    else:
+        lines.append(f"- テーブル {len(tables)} 件、ビュー {len(views)} 件、Enum {len(m['enums'])} 件、"
+                     f"シーケンス {len(m['sequences'])} 件")
     lines.append("")
     schemas = {}
     for t in m["tables"]:
@@ -671,11 +708,16 @@ def _er_diagrams(ctx, tables):
     if edges:
         out += ["実線（Physical FK）は DB にある外部キー、点線（ORM relation）はアプリ側の ORM の関係で、"
                 "DB に外部キーがあるとは限らない。カラムの `FK` は、DB に外部キーがあるものにだけ付ける。", ""]
+    where = {name: i for i, group in enumerate(groups, 1) for name in group}
+    crossing = [(a, b, label) for a, b, label, _ in edges if where.get(a) != where.get(b)]
     if len(groups) > 1:
-        out += [f"テーブルが多いため、つながりの塊ごとに {len(groups)} 枚に分けた。", ""]
+        out += [f"1 枚の図に描くのは {mm.MAX_NODES} テーブルまで（それより多いと図が読めない大きさになる）。"
+                f"テーブルが {len(names)} 件あるので {len(groups)} 枚に分けた。"
+                "関係でつながるテーブルはなるべく同じ図に入れ、図をまたぐ関係は図の後の表に載せる。", ""]
     for i, group in enumerate(groups, 1):
         if len(groups) > 1:
-            out += [f"### ER 図 {i}", ""]
+            shown = ", ".join(group[:6]) + (f" ほか {len(group) - 6} 件" if len(group) > 6 else "")
+            out += [f"### ER 図 {i}（{shown}）", ""]
         members = set(group)
         lines = ["erDiagram"]
         for name in group:
@@ -704,6 +746,11 @@ def _er_diagrams(ctx, tables):
             rel = ER_RELATION.get(kind, "}o--o{")
             lines.append(f'    {mm.ident(a, "t")} {rel} {mm.ident(b, "t")} : "{mm.label(label)}"')
         out += [mm.block(lines), ""]
+    if crossing:
+        out += ["### 図をまたぐ関係", "",
+                table(["テーブル", "図", "関係先", "図", "関係"],
+                      [[code(a), f"ER 図 {where[a]}", code(b), f"ER 図 {where[b]}", label]
+                       for a, b, label in crossing]), ""]
     return out
 
 
@@ -724,7 +771,10 @@ def _table_section(ctx, t, uv):
             keys.append("PK")
         fk = fk_cols.get(c["name"])
         if fk:
-            keys.append(f"FK → {fk['references']['table']}.{', '.join(fk['references']['columns']) or '?'}")
+            ref_cols = ", ".join(fk["references"]["columns"])
+            # `REFERENCES auth.users` のように列を書かないと、参照先の主キーを指す
+            keys.append(f"FK → {fk['references']['table']}." + ref_cols if ref_cols
+                        else f"FK → {fk['references']['table']}（主キー）")
         if c["unique"]:
             keys.append("UK")
         nullable = UNK if c["nullable"] is None else ("可" if c["nullable"] else "不可")
@@ -924,7 +974,10 @@ def _endpoint_section(ctx, e, uv):
     if note.get("validation"):
         lines += ["**バリデーション**", "", table(["条件", "不正時"],
                                              [[v.get("rule"), v.get("onInvalid")] for v in note["validation"]]), ""]
-    if e["id"] not in ctx.excluded:
+    # 入出力をライブラリが決める API は、注釈の未確認（library-owned）がその説明になる
+    library_owned = any(isinstance(u, dict) and u.get("kind") == "library-owned"
+                        for u in note.get("unverified") or [])
+    if e["id"] not in ctx.excluded and not library_owned:
         if not request and not note.get("noRequest"):
             uv.add(code(title), "リクエストの形", "注釈未作成。ハンドラとスキーマ定義を読んで書く", "not-found")
         if not responses:
@@ -944,7 +997,14 @@ def render_screens(ctx):
     screens = m["screens"]
     lines += ["## 概要", ""]
     rules = sorted({e.get("rule") for s in screens for e in s["evidence"] if e.get("rule")})
-    lines += [f"- 画面 {len(screens)} 件。ルーティングの判定: {', '.join(rules) or NA}", ""]
+    unread = [u for u in m.get("unsupported", []) if u["kind"] == "screens"]
+    if unread and not screens:
+        # 読めなかったものを「0 件」と確定して書かない
+        lines += [f"- 画面: {UNK}（画面のルーティングを読み取れなかった。末尾の「未確認」を参照）", ""]
+        for u in unread:
+            uv.add("画面", "画面のルーティング", f"`{u['file']}`: {u['reason']}", "unsupported")
+    else:
+        lines += [f"- 画面 {len(screens)} 件。ルーティングの判定: {', '.join(rules) or NA}", ""]
 
     lines += ["## 画面一覧", ""]
     rows = []
@@ -1330,8 +1390,8 @@ def render_detail(ctx, f, d):
         lines += [table(["パス"], [[code(x)] for x in f["implementationFiles"]]) or NA, ""]
 
     lines += ["## 根拠", "", f"機能 ID: {code(f['id'])}。各項目の根拠は `.source-docs/evidence.json` を参照。", ""]
-    for note in f["unresolved"]:
-        uv.add(name, note, "自動解析で入口から import を 3 段までたどった範囲")
+    for eid in f.get("pendingFrom", []):
+        uv.pending_of(ctx, eid, code(entity_label(ctx, eid)))
     uv.from_list(name, d.get("unverified"))
     lines += uv.render()
     return "\n".join(lines) + "\n"

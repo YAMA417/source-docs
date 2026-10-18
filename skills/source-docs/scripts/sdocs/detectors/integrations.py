@@ -145,6 +145,21 @@ def is_internal_host(host):
         return False
 
 
+# 例示用のドメイン（RFC 2606）。実在の連携先ではない（.test は再現用の連携先に使うので外さない）
+EXAMPLE_HOST_SUFFIX = (".example", ".invalid", ".localhost")
+EXAMPLE_HOSTS = ("example.com", "example.net", "example.org")
+RE_TEST_PATH = re.compile(r"(^|/)(__tests__|__mocks__|tests?|e2e|fixtures|mocks?)/|\.(test|spec|stories)\.[cm]?[jt]sx?$|(^|/)test_[^/]*\.py$")
+
+
+def is_example_host(host):
+    host = host.lower()
+    return host.endswith(EXAMPLE_HOST_SUFFIX) or any(host == h or host.endswith("." + h) for h in EXAMPLE_HOSTS)
+
+
+def is_test_file(rel):
+    return bool(RE_TEST_PATH.search(rel))
+
+
 def host_key(host):
     return "host:" + host.lower()
 
@@ -289,8 +304,11 @@ class Integrations(Adapter):
             if used:
                 out.append({"kind": "integration", "key": key, "name": name, "sdk": pkg,
                             "offset": 0})
-        for m in RE_URL.finditer(code):
+        # テストのコードに書いた URL は、システムの連携先ではない
+        for m in ([] if is_test_file(rel) else RE_URL.finditer(code)):
             host = m.group(2)
+            if is_example_host(host):
+                continue
             near = code[max(0, m.start() - 80):m.start()]
             if not RE_HTTP_CALL_NEAR.search(near):
                 continue

@@ -31,6 +31,15 @@ def merge(b):
 
 
 def _merge_table(b, t, app_has_migrations):
+    # 同じテーブルを schema.sql と migration の両方で定義していると、同じ外部キーが 2 回入る
+    seen, fks = set(), []
+    for fk in t["physicalForeignKeys"]:
+        k = (tuple(fk.get("columns") or ()), (fk.get("references") or {}).get("table"),
+             tuple((fk.get("references") or {}).get("columns") or ()))
+        if k not in seen:
+            seen.add(k)
+            fks.append(fk)
+    t["physicalForeignKeys"] = fks
     cols = t["columns"]
     sources = sorted({c["source"] for c in cols} | {i.get("source") for i in t["indexes"] if i.get("source")})
     has_migration = any(c["source"] == "migration" for c in cols) or any(

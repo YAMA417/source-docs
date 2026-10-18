@@ -101,6 +101,10 @@ docs/system/
 ```
 
 更新は `/plugin marketplace update source-docs` のあと `claude plugin update source-docs@source-docs`。
+更新したら Claude Code を起動し直す。
+
+0.4 以前に作った資料を作り直すと、品質ゲートで止まることがある（本文で確定したことを注釈の「未確認」でも挙げている、
+共通仕様が個別の API より強く断定している など）。止まったときのメッセージに直し方が出るので、それに従って注釈を直す。
 
 ### 手動で置く
 
@@ -214,18 +218,21 @@ CHECK errors=0 warnings=2 info=0 RESULT=OK
 | FastAPI / Gin | ルート（`APIRouter(prefix)` / `Group`） |
 | GraphQL SDL / tRPC / socket.io | 入口として検出 |
 
-実在の OSS でも確かめている（0.4.0 時点）。
+実在のプロジェクトでも確かめている（1.0.0 時点）。資料の記述を、画面・API・テーブルの数と根拠の行でソースと突き合わせた。
 
 | プロジェクト | 構成 | 確かめたこと |
 | --- | --- | --- |
-| [shadcn-ui/taxonomy](https://github.com/shadcn-ui/taxonomy) | Next.js App Router + Prisma（MySQL）+ Stripe + NextAuth | 画面・API・テーブルの数が実物と一致。画面 → API → テーブルの結び付き |
-| [strapi/foodadvisor](https://github.com/strapi/foodadvisor) | Next.js + Strapi v4 のモノレポ | 2 アプリの判定・コアルータ・URL 組み立て関数経由の API 呼び出し |
+| [shadcn-ui/taxonomy](https://github.com/shadcn-ui/taxonomy) | Next.js App Router + Prisma（MySQL）+ Stripe + NextAuth | 全体資料と詳細設計（投稿の編集）。画面・API・テーブルの数が実物と一致。画面 → API → テーブルの結び付き・ORM の関係と DB の外部キーの区別・外部連携の環境変数 |
+| [strapi/foodadvisor](https://github.com/strapi/foodadvisor) | Next.js + Strapi v4 のモノレポ | 全体資料。2 アプリの判定・コアルータ・URL 組み立て関数経由の API 呼び出し |
+| [fastapi/full-stack-fastapi-template](https://github.com/fastapi/full-stack-fastapi-template) | FastAPI + SQLModel + React（TanStack Router） | 全体資料。SQLModel のテーブル。解析器が読めない TanStack Router の画面 8 件を Claude が `additions` で足し、ソースの定義と一致 |
+| [vercel/nextjs-subscription-payments](https://github.com/vercel/nextjs-subscription-payments) | Next.js + Supabase + Stripe | 全体資料。`auth.users` への外部キー（スキーマ付きの参照） |
+| [gothinkster/node-express-realworld-example-app](https://github.com/gothinkster/node-express-realworld-example-app) | Express + Prisma | 全体資料。API の数がルート登録と一致 |
 
-知らない書き方は「未確認」（解析対象外）と coverage の unresolved に出るので、まずそこを見る。
+解析器が知らない書き方は「未確認」（解析対象外）に出る。そのときは Claude がコードを読んで `additions` で足す（下記）。
 
 ## このプラグインの限界
 
-- **検出は書き方に依存する。** 解析器が知らない書き方の入口は候補に出ない
+- **機械で確かめられる範囲は書き方に依存する。** 解析器が知らない書き方（ORM・ルーター・独自のルート定義）は、Claude がコードを読んで `additions` で足す。足したものは根拠の行に名前があるかを機械で照合し、「推定（根拠あり）」として出す。足せるのはテーブル・API・画面・外部連携で、それらの間の関係は注釈に書いたぶんだけ出る
 - **関係は import を 3 段まで辿った範囲。** DI コンテナ・動的な呼び出し・変数で組み立てた URL は辿れない
 - **業務上の名前と意味は機械では決まらない。** 機能を業務の単位にまとめるのは、根拠がある場合に注釈で行う
 - **機械照合は作文しか検出できない。** 「分岐条件の説明が実装と違う」は人間が読んで見つける
@@ -235,6 +242,21 @@ CHECK errors=0 warnings=2 info=0 RESULT=OK
 - 変更箇所だけの再生成（全体の再解析・再生成で対応する。注釈は保たれる）
 - Notion / Excel への出力
 - Laravel / Rails / Django / Spring Boot / NestJS のルート検出
+
+## 互換性
+
+1.x の間は、次のものを変えない。変えるときは 2.0 にする。
+
+- 依頼の書き方（`/source-docs` の対象と引数）
+- `source_docs.py` のコマンドと引数、`check` の終了コード（ERROR が 1 件でもあれば 1）
+- 注釈（`.source-docs/annotations.json`、`schema: source-docs/annotations`・`version: 1`）の書き方。1.x で書いた注釈は 1.x の間そのまま使える
+- 資料の置き場所とファイル名（`docs/system/` 以下）
+
+1.x の間にも変わるもの。
+
+- 検出できる書き方が増え、資料に載る件数や中身が変わる
+- 文面・表の列・見た目
+- 品質ゲートの検査が増える。新しい検査は WARNING として足す。資料を書き出さずに止める ERROR にするのは 2.0 から
 
 ---
 
