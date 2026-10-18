@@ -172,7 +172,7 @@ class ErSplitTest(unittest.TestCase):
             render_docs(resolve(m, {}), out, only=["database"])
             text = open(os.path.join(out, "database.md"), encoding="utf-8").read()
             self.assertGreaterEqual(text.count("erDiagram"), 3)
-            self.assertIn("つながりの塊ごとに", text)
+            self.assertIn("1 枚の図に描くのは 12 テーブルまで", text)
             for block in re.findall(r"```mermaid\nerDiagram\n(.*?)```", text, re.S):
                 self.assertLessEqual(block.count(" {\n"), mm.MAX_NODES)
         finally:

@@ -12,7 +12,7 @@
 
 import copy
 
-from . import facts as facts_mod
+from . import additions, facts as facts_mod
 from .features import apply_annotations, candidates, capabilities
 from .model import COLLECTIONS, RELATION_FIELDS
 from .status import ACCEPTED, STATUSES, diagnostic
@@ -25,7 +25,7 @@ def resolve(model, annotations=None):
     """Resolved Project Model を作る（品質ゲートまで通す）。"""
     from . import quality
     annotations = annotations or {}
-    view = evidence_resolution(model, annotations)
+    view = evidence_resolution(additions.merge(model, annotations), annotations)
     conflict_resolution(view, annotations)
     quality.gate(view)
     return view
@@ -77,9 +77,10 @@ def _apply_dispute(by_id, d, diags):
 
     `{"entity": "integration:github-oauth", "field": "envVars", "value": "SMTP_FROM",
       "reason": "EmailProvider の引数で、GitHub のものではない", "evidence": ["lib/auth.ts:30"]}`
-    既定の状態は conflict。`"status": "unresolved"` も指定できる。
+    既定の状態は unresolved（解析器の結果を本文から外し、理由を「未確定」に出す）。根拠どうしが本当に食い違い、
+    どちらが正しいか決められないときだけ `"status": "conflict"` を指定する（資料の状態が FAILED になる）。
     """
-    status = d.get("status") or "conflict"
+    status = d.get("status") or "unresolved"
     entity = by_id.get(d.get("entity"))
     field, value = d.get("field"), d.get("value")
     target = None
@@ -174,6 +175,12 @@ def _resolve_request(e):
     e["resolvedRequest"] = {"source": "runtime-schema", "library": schema.get("library"), "fields": fields,
                             "evidence": schema.get("evidence", [])}
     names = {f["name"] for f in schema["fields"]}
+    # スキーマが調べるのは本文（やクエリ）だけ。ヘッダー・パスなど、スキーマの外の項目は注釈のまま載せる
+    covered = {f.get("in") or "body" for f in schema["fields"]} or {"body"}
+    for name, n in by_note.items():
+        if name not in names and (n.get("in") or "body") not in covered:
+            fields.append(dict(n))
+            names.add(name)
     for name in by_note:
         if name not in names:
             e.setdefault("pending", []).append({

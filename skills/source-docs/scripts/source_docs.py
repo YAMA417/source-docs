@@ -28,6 +28,7 @@ from sdocs.validators import coverage as cov_mod  # noqa: E402
 from sdocs.validators import secrets as sec_mod  # noqa: E402
 from sdocs.core.analyzer import analyze  # noqa: E402
 from sdocs.core.features import TYPE_LABEL, feature_slug  # noqa: E402
+from sdocs.core import additions as additions_mod  # noqa: E402
 from sdocs.core.model import index, load_model, model_dir, model_path, write_json  # noqa: E402
 from sdocs.core.resolve import resolve  # noqa: E402
 from sdocs.validators import health as health_mod  # noqa: E402
@@ -167,6 +168,7 @@ def cmd_scaffold(args):
     out_dir = _out(args)
     model = load_model(out_dir)
     annotations = ann_mod.load(out_dir)
+    model = additions_mod.merge(model, annotations)
     feature = find_feature(resolve(model, annotations)["features"], args.feature)
     if feature is None:
         print(f"error: 機能が見つからない: {args.feature}（`features` で候補を確認する）", file=sys.stderr)
@@ -190,6 +192,7 @@ def cmd_scaffold(args):
 def _check(out_dir, quiet=False):
     model = load_model(out_dir)
     annotations = ann_mod.load(out_dir)
+    model = additions_mod.merge(model, annotations)
     result = ann_mod.check(model, annotations, out_dir)
     if not quiet or result.errors:
         for e in result.errors:
@@ -284,7 +287,8 @@ def cmd_render(args):
 def cmd_coverage(args):
     out_dir = _out(args)
     model = load_model(out_dir)
-    cov = cov_mod.compute(model, ann_mod.load(out_dir), out_dir)
+    annotations = ann_mod.load(out_dir)
+    cov = cov_mod.compute(additions_mod.merge(model, annotations), annotations, out_dir)
     write_json(os.path.join(model_dir(out_dir), "coverage.json"), cov)
     if args.json:
         print(json.dumps(cov, ensure_ascii=False, indent=2))
@@ -301,7 +305,7 @@ def cmd_coverage(args):
 
 def cmd_verify(args):
     out_dir = _out(args)
-    model = load_model(out_dir)
+    model = additions_mod.merge(load_model(out_dir), ann_mod.load(out_dir))
     if args.doc:
         with open(args.doc, encoding="utf-8") as f:
             docs = {os.path.relpath(args.doc, out_dir).replace(os.sep, "/"): f.read()}

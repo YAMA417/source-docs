@@ -100,7 +100,7 @@
 ## disputes — 解析結果への異議
 
 コードを読んで、解析器の結果が誤っていると確かめたときに書く。その事実は本文から外れ、
-資料末尾の「未確定」に状態つきで出る。`check` は矛盾（conflict）を ERROR として数える。
+資料末尾の「未確定」に状態つきで出る。既定の状態は `unresolved`（WARNING）。根拠どうしが食い違い、どちらが正しいか決められないときだけ `conflict`（ERROR。資料の状態が FAILED になる）にする。
 
 ```json
 "disputes": [
@@ -111,8 +111,32 @@
 
 - `field` は `tables` `integrations` `calls` `links` `publishes` `enqueues` `envVars` `columns`
   `physicalForeignKeys` `ormRelations` のどれか。`value` は関係なら相手の ID、それ以外は名前
-- `status` は既定で `conflict`。決められないだけなら `unresolved`
+- `status` は既定で `unresolved`。根拠どうしが食い違って決められないときだけ `conflict`
 - `reason` と `evidence` は必須。**本文を直す代わりに未確認欄で訂正する書き方はしない**
+
+## additions — 解析器が見落とした実体を足す
+
+解析器が読めない書き方（知らない ORM・ルーター・独自のルート定義など）で書かれたテーブル・API・画面・外部連携を、
+コードを読んで足す。足したものは「推定（根拠あり）」として本文に出る。足した後は、ほかの実体と同じく `entities` に意味を書く
+（ID は `table:<name>` `endpoint:<METHOD> <path>` `screen:<route>`）。
+
+```json
+{"additions": [
+  {"kind": "table", "name": "user", "evidence": ["backend/app/models.py:51"],
+   "columns": [{"name": "id", "type": "uuid", "primaryKey": true},
+               {"name": "owner_id", "type": "uuid", "references": {"table": "user", "column": "id"}}]},
+  {"kind": "endpoint", "method": "POST", "path": "/api/snaps/upload-image",
+   "evidence": ["backend/strapi-app/src/api/snap/routes/custom-snap.ts:20"]},
+  {"kind": "screen", "route": "/login", "name": "ログイン", "evidence": ["frontend/src/routes/login.tsx:3"]},
+  {"kind": "integration", "name": "Gemini", "hosts": ["generativelanguage.googleapis.com"],
+   "evidence": ["frontend/lib/gemini.ts:4"]}
+]}
+```
+
+- `evidence` は必須で、**定義が書かれている行**を挙げる。`lint` が行の前後 3 行にテーブル名・パス・ルートが
+  書かれているかを照合し、無ければ ERROR にする（資料を書き出さない）
+- 解析器が同じものを見つけていれば、足しても無視される（解析の結果を優先する）
+- 推測で足さない。コードで定義を確かめたものだけを足す
 
 ## entities — 実体ごとの意味
 

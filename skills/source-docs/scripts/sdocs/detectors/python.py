@@ -20,6 +20,9 @@ RE_SA_MODEL = re.compile(r"^class\s+(\w+)\(([^)]*)\)\s*:", re.M)
 RE_SA_TABLENAME = re.compile(r"""__tablename__\s*=\s*['"](\w+)['"]""")
 RE_SA_COLUMN = re.compile(
     r"^\s+(\w+)\s*(?::\s*[^=\n]+)?=\s*(?:Column|mapped_column|db\.Column)\((.*)\)\s*$", re.M)
+# SQLModel の項目: `name: 型` / `name: 型 = 値` / `name: 型 = Field(...)`（Field は複数行にまたがることがある）
+RE_SM_FIELD = re.compile(r"^    (\w+)\s*:\s*([^=\n]+?)\s*(?:=\s*((?:Field|Relationship)\((?:[^()]|\([^()]*\))*\)|[^\n]+))?\s*$",
+                         re.M)
 RE_CELERY_TASK = re.compile(r"@(?:\w+\.)?(?:task|shared_task)\b[^\n]*\n\s*(?:async\s+)?def\s+(\w+)")
 RE_PY_FROM_IMPORT = re.compile(r"^\s*from\s+(\.*[\w.]*)\s+import\s+([\w, ()]+)", re.M)
 SA_OPS = [(r"\bsession\.add\(\s*(\w+)\(", "CREATE"), (r"\bselect\(\s*(\w+)\b", "READ"),
@@ -71,10 +74,17 @@ class PythonWeb(Adapter):
 
     def _sqlalchemy(self, app, b, rel, text):
         classes = list(RE_SA_MODEL.finditer(text))
+        bodies = {}
+        for i, m in enumerate(classes):
+            end = classes[i + 1].start() if i + 1 < len(classes) else len(text)
+            bodies[m.group(1)] = (m.group(2), text[m.end():end])
         for i, m in enumerate(classes):
             end = classes[i + 1].start() if i + 1 < len(classes) else len(text)
             body = text[m.end():end]
             tn = RE_SA_TABLENAME.search(body)
+            if not tn and re.search(r"\btable\s*=\s*True\b", m.group(2)):
+                self._sqlmodel(app, b, rel, text, m, bodies)
+                continue
             if not tn:
                 continue
             table = b.add_table(app.ref, tn.group(1), app.ev(rel, line_of(text, m.start()),
@@ -98,6 +108,46 @@ class PythonWeb(Adapter):
                              "references": {"table": fk.group(1), "columns": [fk.group(2)]}, "source": "sqlalchemy"}
                     table["ormRelations"].append(dict(entry))
                     table["physicalForeignKeys"].append(dict(entry))
+
+    def _sqlmodel(self, app, b, rel, text, m, bodies):
+        """SQLModel の `class X(Base, table=True)`。テーブル名は既定でクラス名の小文字、項目は親クラスからも継ぐ。"""
+        own = bodies[m.group(1)][1]
+        tn = RE_SA_TABLENAME.search(own)
+        table = b.add_table(app.ref, tn.group(1) if tn else m.group(1).lower(),
+                            app.ev(rel, line_of(text, m.start()), "sqlmodel.model"), aliases=(m.group(1),))
+        fields, seen = [], set()
+
+        def collect(cls, depth=0):
+            if cls not in bodies or depth > 5:
+                return
+            for parent in re.split(r"\s*,\s*", bodies[cls][0]):
+                collect(parent.strip(), depth + 1)
+            for fm in RE_SM_FIELD.finditer(bodies[cls][1]):
+                if fm.group(1) not in seen and "Relationship(" not in (fm.group(3) or ""):
+                    seen.add(fm.group(1))
+                    fields.append(fm)
+        collect(m.group(1))
+        for fm in fields:
+            name, annot, args = fm.group(1), fm.group(2).strip(), fm.group(3) or ""
+            if name.startswith("_") or name in ("model_config",):
+                continue
+            fk = re.search(r"""foreign_key\s*=\s*['"](\w+)\.(\w+)['"]""", args)
+            primary = "primary_key=True" in args.replace(" ", "")
+            nullable_m = re.search(r"nullable\s*=\s*(True|False)", args)
+            optional = bool(re.search(r"\|\s*None|Optional\[", annot))
+            nullable = (nullable_m.group(1) == "True") if nullable_m else (False if primary else optional)
+            default = re.search(r"\bdefault(?:_factory)?\s*=\s*([^,)]+)", args)
+            add_column(table, {
+                "name": name, "type": re.sub(r"\s*\|\s*None", "", annot),
+                "nullable": nullable,
+                "default": ("NULL" if default.group(1).strip() == "None" else default.group(1).strip()) if default else None,
+                "primaryKey": primary, "unique": "unique=True" in args.replace(" ", ""),
+                "references": {"table": fk.group(1), "column": fk.group(2)} if fk else None}, "sqlmodel")
+            if fk:
+                entry = {"name": None, "columns": [name],
+                         "references": {"table": fk.group(1), "columns": [fk.group(2)]}, "source": "sqlmodel"}
+                table["ormRelations"].append(dict(entry))
+                table["physicalForeignKeys"].append(dict(entry))
 
     def imports(self, app, rel, text):
         if not rel.endswith(".py"):

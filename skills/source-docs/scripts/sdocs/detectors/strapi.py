@@ -14,7 +14,7 @@ from .strapi_spec import core_spec, strapi_major
 # --- Strapi --------------------------------------------------------------------
 
 RE_CORE_ROUTER = re.compile(r"""createCoreRouter\(\s*['"](api::[\w.-]+)['"]\s*(?:,\s*\{([^;]*)\})?""", re.S)
-RE_ROUTE_OBJ = re.compile(r"\{[^{}]*?method\s*:\s*['\"](\w+)['\"][^{}]*?\}", re.S)
+RE_ROUTE_METHOD = re.compile(r"\bmethod\s*:\s*['\"](\w+)['\"]")
 RE_STRAPI_USAGE = re.compile(
     r"""strapi\s*\.\s*(?:entityService\s*\.\s*(\w+)\(\s*['"](api::[\w.-]+)['"]|"""
     r"""documents\(\s*['"](api::[\w.-]+)['"]\s*\)\s*\.\s*(\w+)\(|"""
@@ -172,8 +172,7 @@ class Strapi(Adapter):
                 b.relate(ep, "tables", table["_uid"],
                          app.ev(rel, line_of(text, m.start()), "strapi.core-controller.convention"),
                          operation=op, status="inferred")
-        for m in RE_ROUTE_OBJ.finditer(text):
-            obj = m.group(0)
+        for m, obj in _route_objects(text):
             path = re.search(r"path\s*:\s*['\"](/[^'\"]*)['\"]", obj)
             handler = re.search(r"handler\s*:\s*['\"]([\w.:-]+)['\"]", obj)
             if not path:
@@ -234,6 +233,33 @@ class Strapi(Adapter):
             if op:
                 out.append({"kind": "table", "alias": uid, "op": op, "offset": m.start()})
         return out
+
+
+def _route_objects(text):
+    """カスタムルートの 1 件ずつ（method を含む `{ ... }`）。`config: { policies: [] }` のような入れ子があっても切らない。"""
+    out = []
+    for m in RE_ROUTE_METHOD.finditer(text):
+        depth, start = 0, None
+        for i in range(m.start(), -1, -1):
+            if text[i] == "}":
+                depth += 1
+            elif text[i] == "{":
+                if depth == 0:
+                    start = i
+                    break
+                depth -= 1
+        if start is None:
+            continue
+        depth = 0
+        for j in range(start, len(text)):
+            if text[j] == "{":
+                depth += 1
+            elif text[j] == "}":
+                depth -= 1
+                if depth == 0:
+                    out.append((m, text[start:j + 1]))
+                    break
+    return out
 
 
 def _next_method(text, pos):

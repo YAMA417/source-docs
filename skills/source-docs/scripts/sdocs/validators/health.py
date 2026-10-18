@@ -73,7 +73,8 @@ def run(out_dir, strict=False, thresholds=None, reanalyze=True):
 
     docs = cov_mod.read_docs(out_dir)
     for p, items in sorted(sec_mod.scan_paths([out_dir]).items()):
-        for f in sec_mod.masked(items):
+        # 例示用のドメイン（example.com など）だと分かるものは機密ではない
+        for f in sec_mod.masked([x for x in items if not x["looksDummy"]]):
             rel = os.path.relpath(p, out_dir).replace(os.sep, "/")
             diags.append(diagnostic("ERROR", "secret.docs", f"{rel} L{f['line']} [{f['label']}] {f['value']}"))
 

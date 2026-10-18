@@ -103,6 +103,7 @@ def analyze(repo_paths, out_dir):
         for kind, labels in b.stack_hints.get(app.id, {}).items():
             stack[kind] = sorted(set(stack[kind]) | labels)
         counts = _counts(b, app.id)
+        _report_unread(b, app, stack, counts)
         b.applications.append({
             "id": app.id, "key": app.key, "repository": f"repo:{app.repo.key}",
             "path": app.root_rel or ".", "name": app.name,
@@ -128,6 +129,21 @@ def _relpath(path, start):
         return os.path.relpath(path, start).replace(os.sep, "/")
     except ValueError:
         return path.replace(os.sep, "/")
+
+
+def _report_unread(b, app, stack, counts):
+    """依存から DB・画面があるはずなのに 1 件も読み取れなかったら、解析の対象外として残す。
+
+    「テーブル 0 件」「画面 0 件」を確定した事実として出さないため（読めなかったのか、無いのかを区別する）。
+    """
+    manifest = (app.manifests or [app.root_rel or "."])[0]
+    if stack["orm"] and not any(True for _ in b.items("tables")):
+        b.add_unsupported({"id": app.id}, manifest, "tables",
+                          f"DB を使う依存（{', '.join(stack['orm'])}）があるのに、テーブルの定義を読み取れなかった")
+    # バックエンドの枠組み（Strapi の管理画面の React など）が使う依存は、そのアプリの画面ではない
+    if stack["frontend"] and not stack["backend"] and not counts["screens"]:
+        b.add_unsupported({"id": app.id}, manifest, "screens",
+                          f"画面を作る依存（{', '.join(stack['frontend'])}）があるのに、画面のルーティングを読み取れなかった")
 
 
 def _counts(b, app_id):

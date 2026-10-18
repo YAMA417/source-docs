@@ -370,6 +370,13 @@ def _apply(b, lookup, app, item, u, ev, status):
     elif kind == "call":
         found = lookup.endpoint(u["method"], u["path"], u.get("methodSource"))
         found = [e for e in found if e["_uid"] != item["_uid"]]
+        if not found and not u["path"].startswith("/api/"):
+            # `${API_URL}/snaps/upload-image` の API_URL が `.../api` で終わる書き方（Strapi への呼び出しなど）。
+            # /api を補うと別のアプリの API に一致するなら、その API を呼ぶと推定する
+            prefixed = [e for e in lookup.endpoint(u["method"], "/api" + u["path"], u.get("methodSource"))
+                        if e["_uid"] != item["_uid"] and e["app"] != item["app"]]
+            if prefixed:
+                found, status = prefixed, "inferred"
         if len(found) == 1:
             b.relate(item, "calls", found[0]["_uid"], ev, status=status)
         elif found:

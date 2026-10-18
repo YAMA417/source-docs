@@ -158,7 +158,14 @@ def scan(doc, terms):
                 value = m.group(0)
                 if label == "キー・シークレットへの値の代入" and _is_placeholder(value):
                     continue
-                dummy = any(h in value.lower() for h in DUMMY_HINTS)
+                checked = value
+                if label == "内部ホスト名":
+                    # Strapi のハンドラ名（`session-auth.local`）はホスト名ではない
+                    if re.search(r"[\"']?(?:operation|handler)[\"']?\s*:", line):
+                        continue
+                    # `strapi.internal.example.com` のように、続きまで見ると例示用のドメインのもの
+                    checked = value + re.match(r"[A-Za-z0-9.\-]*", line[m.end():]).group(0)
+                dummy = any(h in checked.lower() for h in DUMMY_HINTS)
                 findings.append({
                     "kind": kind,
                     "label": label,

@@ -210,7 +210,7 @@ class NewAnnotationFormsTest(unittest.TestCase):
         self.assertEqual(cap["unknownFeatures"], ["feature:ghost"])
 
     def test_dispute_moves_fact_out_of_body(self):
-        """異議を出した関係は本文から外れ、未確定（矛盾）として出る。"""
+        """異議を出した関係は本文から外れ、未確定（未解決）として出る。解析器の誤りを直しただけなので FAILED にしない。"""
         dispute = {"entity": "endpoint:POST /api/orders", "field": "tables", "value": "table:orders",
                    "reason": "テスト用の異議", "evidence": ["src/app/api/orders/route.ts"]}
         ann = dict(self.base, disputes=[dispute])
@@ -218,10 +218,10 @@ class NewAnnotationFormsTest(unittest.TestCase):
         view = resolve(self.docs.model, ann)
         ep = {e["id"]: e for e in view["endpoints"]}["endpoint:POST /api/orders"]
         self.assertNotIn("table:orders", [r["id"] for r in ep["tables"]])
-        self.assertIn({"field": "tables", "value": "table:orders", "status": "conflict"},
+        self.assertIn({"field": "tables", "value": "table:orders", "status": "unresolved"},
                       [{k: p[k] for k in ("field", "value", "status")} for p in ep["pending"]])
-        self.assertIn("dispute.tables", [d["code"] for d in view["diagnostics"] if d["severity"] == "ERROR"])
-        self.assertEqual(view["quality"]["conflict"], 1)
+        self.assertIn("dispute.tables", [d["code"] for d in view["diagnostics"] if d["severity"] == "WARNING"])
+        self.assertEqual(view["quality"]["conflict"], 0)
 
     def test_dispute_requires_reason_and_evidence(self):
         ann = dict(self.base, disputes=[{"entity": "endpoint:POST /api/orders", "field": "tables",

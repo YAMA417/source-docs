@@ -87,18 +87,18 @@ class IntegrationEnvTest(GateCase):
         self.assertNotIn("SMTP_FROM", row)
 
     def test_disputed_env_leaves_body_and_is_conflict(self):
-        """注釈で異議を出した環境変数は、本文から外れて「未確定（矛盾）」に出る。"""
+        """注釈で異議を出した環境変数は、本文から外れて「未確定（未解決）」に出る。"""
         ann = {"disputes": [{"entity": "integration:email-login", "field": "envVars", "value": "SMTP_FROM",
                              "reason": "テスト用の異議", "evidence": ["lib/auth.ts:11"]}]}
         view = resolve(self.model, ann)
         email = by_id(view)["integration:email-login"]
         self.assertNotIn("SMTP_FROM", email["envVars"])
-        self.assertEqual([(p["value"], p["status"]) for p in email["pending"]], [("SMTP_FROM", "conflict")])
-        self.assertEqual(view["documentationStatus"], "FAILED")
+        self.assertEqual([(p["value"], p["status"]) for p in email["pending"]], [("SMTP_FROM", "unresolved")])
+        self.assertEqual(view["documentationStatus"], "WARNING")
         doc = self.render(ann, ["integrations"])["integrations.md"]
         body, _, pending = doc.partition("## 未確定")
         self.assertNotIn("SMTP_FROM", body)
-        self.assertIn("`SMTP_FROM` | 矛盾", pending)
+        self.assertIn("`SMTP_FROM` | 未解決", pending)
 
 
 class DbTest(GateCase):

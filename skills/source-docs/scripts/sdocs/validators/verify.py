@@ -156,6 +156,8 @@ def verify(model, out_dir, docs, mode=None):
     tables = set()
     for t in model["tables"]:
         tables |= {t["key"], t["name"], *t.get("aliases", [])}
+    # API 仕様の見出し（### `server.updatePassword` — …）はテーブルの見出しと同じ形。API の名前はテーブルとして照合しない
+    entry_names = {n for e in model["endpoints"] for n in (e.get("key"), e.get("path")) if n}
     source = Source(model, out_dir)
     findings, checked = [], {"endpoint": 0, "errorType": 0, "table": 0, "path": 0}
 
@@ -181,6 +183,8 @@ def verify(model, out_dir, docs, mode=None):
                     findings.append(_f(rel, "errorType", name, "ソースにこの識別子が存在しない"))
         if "table" in kinds:
             for name in extract_tables(doc):
+                if name in entry_names:
+                    continue
                 checked["table"] += 1
                 bare = name.split(".")[-1]
                 if name in tables or bare in tables:
