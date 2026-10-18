@@ -3,12 +3,10 @@
 処理の流れ。
 
     ソースコード
-      → adapters（フレームワーク固有の検出）
-      → analyzer（Project Model へ正規化）
-      → relations / features（関係と機能の解決）
-      → annotations（Claude が書いた意味づけの検査）
-      → render（Markdown / HTML / JSON）
-      → coverage / verify（source ↔ docs の突き合わせ）
+      → detectors（フレームワーク固有の検出）
+      → core（Project Model・DB の最終状態・関係と機能の解決・Fact・品質ゲート）
+      → renderers（Markdown / HTML / JSON）
+      → validators（注釈・網羅率・健全性・照合・機密の検査）
 
 依存は Python 3 の標準ライブラリだけ。
 """

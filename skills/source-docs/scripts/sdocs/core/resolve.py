@@ -246,6 +246,8 @@ def quality(view):
 
     for coll in COLLECTIONS + ("entrypoints",):
         for item in view[coll]:
+            if coll == "entrypoints" and item.get("target"):
+                continue    # 画面・API・ジョブから作った入口は、元の実体で数えている
             add(item.get("status", "confirmed"))
             for field in RELATION_FIELDS:
                 for r in item.get(field, []) if isinstance(item.get(field), list) else []:

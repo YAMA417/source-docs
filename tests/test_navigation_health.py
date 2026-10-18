@@ -142,6 +142,73 @@ class HealthSeparationTest(unittest.TestCase):
         self.assertNotIn("Severity", md_section(self.md, "資料の状態（Overall Status）"))
 
 
+class UnresolvedEntityTest(unittest.TestCase):
+    """HTTP メソッドを決められない API（foodadvisor の pages/api/preview.js と同じ形）。
+
+    資料の状態が数える未解決の件数と、資料末尾の「未確定」に載る行が一致する。
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        model = analyze_files({
+            "package.json": '{"dependencies": {"next": "14"}}',
+            "pages/index.js": "export default function Home() { return null }\n",
+            "pages/api/preview.js": "export default function handler(req, res) {\n"
+                                    "  res.setPreviewData({});\n  res.redirect('/');\n}\n",
+        })
+        cls.view = resolve(model, {})
+        cls.out = tempfile.mkdtemp(prefix="sd-unresolved-")
+        render_docs(cls.view, cls.out, only=["overview", "api"])
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.out, ignore_errors=True)
+
+    def test_api_and_its_entrypoint_count_once(self):
+        self.assertEqual(self.view["quality"]["unresolved"], 1)
+
+    def test_listed_in_pending(self):
+        api = read(os.path.join(self.out, "api.md"))
+        pending = md_section(api, "未確定")
+        self.assertIn("| `ANY /api/preview` | API | `ANY /api/preview` | 未解決 | 受け付ける HTTP メソッドをコードから特定できない |",
+                      pending)
+        self.assertNotIn("受け付ける HTTP メソッド", md_section(api, "未確認") or "")
+        overview = read(os.path.join(self.out, "overview.md"))
+        self.assertIn("未解決の事実（unresolved）: 1 件", overview)
+
+
+class LibraryOwnedEndpointTest(unittest.TestCase):
+    """入出力をライブラリが決める API（taxonomy の NextAuth の受け口）を、注釈が足りないと警告しない。"""
+
+    FILES = {
+        "package.json": '{"dependencies": {"next": "14", "next-auth": "4"}}',
+        "pages/api/auth/[...nextauth].ts": 'import NextAuth from "next-auth";\n'
+                                           "export default NextAuth({ providers: [] });\n",
+    }
+
+    def warnings(self, note):
+        from sdocs.validators.annotations import check
+        model = analyze_files(self.FILES)
+        eid = [e["id"] for e in model["endpoints"] if "nextauth" in e["id"]][0]
+        ann = {"schema": "source-docs/annotations", "version": 1, "entities": {eid: note}}
+        out = tempfile.mkdtemp(prefix="sd-lib-")
+        try:
+            return [w for w in check(model, ann, out).warnings if "注釈が足りない" in w]
+        finally:
+            shutil.rmtree(out, ignore_errors=True)
+
+    def test_library_owned_is_enough(self):
+        self.assertEqual(self.warnings({
+            "summary": "NextAuth.js の認証用の入口",
+            "unverified": [{"item": "受け付けるサブパス・メソッド・入出力", "kind": "library-owned",
+                            "searched": "NextAuth(authOptions) を返すだけ"}]}), [])
+
+    def test_missing_fields_are_named(self):
+        warnings = self.warnings({"summary": "NextAuth.js の認証用の入口"})
+        self.assertEqual(len(warnings), 1, warnings)
+        self.assertIn("（request・responses）", warnings[0])
+
+
 class FeatureLegendTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

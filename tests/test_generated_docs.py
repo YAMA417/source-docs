@@ -226,7 +226,10 @@ class GeneratedDocsTest(unittest.TestCase):
     def test_no_python_none_in_generated_docs(self):
         """値の決まらない未確定（未ログイン時の応答）を、`None` と出さない（taxonomy の features.md で起きた）。"""
         features = read(os.path.join(self.out, "features.md"))
-        self.assertIn("PATCH /api/posts/:postId の未ログイン時の応答（値を決められない）", features)
+        # 未解決の事実なので、未確認ではなく未確定に載せる
+        self.assertIn("（`PATCH /api/posts/:postId`） | 未ログイン時の応答 | （値を決められない） | 未解決 |",
+                      md_section(features, "未確定"))
+        self.assertNotIn("未ログイン時の応答", md_section(features, "未確認"))
         for root, _, files in os.walk(self.out):
             for name in files:
                 if name.endswith((".md", ".html")):

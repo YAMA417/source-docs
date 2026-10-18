@@ -6,7 +6,7 @@
 | --- | --- | --- |
 | model | Project Model が壊れている・版が違う | ERROR |
 | annotation | 注釈の誤り（存在しない ID・根拠の無い implemented…） | ERROR |
-| annotation | 古い注釈・注釈の無い API | WARNING |
+| annotation | 古い注釈・注釈が足りない API | WARNING |
 | secret | 注釈・資料（Markdown / JSON / HTML）に認証情報らしき値がある | ERROR |
 | conflict | 根拠どうしが矛盾している事実がある | ERROR |
 | db / relation | ORM と migration の食い違い、行き先の決まらない関係 | WARNING |

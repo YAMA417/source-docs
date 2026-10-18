@@ -41,9 +41,11 @@
   （良い:「在庫が足りない」／悪い:「`checkStock()` が false のとき」）
 - **API 仕様を作るときは、全エンドポイントに注釈を付ける。** 1 本ずつ `summary` `auth` `request`
   （無ければ `noRequest: true`）`responses` `errors` を書く。API 仕様は各入口の契約が本体なので、
-  一部だけでは資料として成立しない。`lint` は注釈の無い API を警告で数える。**0 件になるまで書く**
+  一部だけでは資料として成立しない。`lint` は注釈が足りない API を警告で数える（足りない項目も出る）。**0 件になるまで書く**
 - 解析器が入出力を埋めた API（Strapi の既定の API など。`show` の `spec` にある）は、`summary` と `auth` を書けばよい。
   コントローラで上書きしていれば `spec` は無いので、ハンドラを読んで書く
+- 入出力をライブラリが決める API（NextAuth の `[...nextauth]` など）は、`summary` を書き、分からない入出力を
+  `unverified` に `kind: "library-owned"` で書く。`request` `responses` を作文しない
 - 認証が全 API で同じなら `api.auth` に書く。個別の `auth` は共通と違うものだけでよい
 - コードから確かめられない項目（管理画面の設定で決まる権限など）だけを `unverified` に送り、`searched` を書く
 

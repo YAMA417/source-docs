@@ -138,6 +138,9 @@ def header(ctx, title, purpose):
     return lines
 
 
+ENTITY_KIND = {"endpoint": "API", "screen": "画面", "table": "テーブル", "integration": "外部連携", "job": "ジョブ"}
+
+
 class Unverified:
     """資料末尾の 2 つの一覧。
 
@@ -166,14 +169,23 @@ class Unverified:
             self.pending.append(row)
 
     def from_entity(self, ctx, entity_id, label=None):
-        item = ctx.idx.get(entity_id) or {}
         target = label or entity_id
-        for reason in item.get("unresolved", []):
-            self.add(target, reason, _searched(item))
-        for p in item.get("pending", []):
-            self.add_pending(ctx, target, p)
+        self.pending_of(ctx, entity_id, target)
         for u in ctx.note(entity_id).get("unverified") or []:
             self.add(target, u["item"], u.get("searched"), u.get("kind") or "unresolved")
+
+    def pending_of(self, ctx, entity_id, target):
+        """実体の未確定（実体そのものと、その関係・値）を未確定の一覧に足す。"""
+        item = ctx.idx.get(entity_id) or {}
+        # 実体そのものが確定できない（HTTP メソッドが決まらない など）。未解決の事実なので未確定に置く
+        for reason in item.get("unresolved", []):
+            row = (target, ENTITY_KIND.get(entity_id.split(":", 1)[0], "実体"), code(entity_label(ctx, entity_id)),
+                   FACT_STATUS.get(item.get("status"), FACT_STATUS["unresolved"]), reason,
+                   _ev_cell(item.get("evidence", [])[:3]))
+            if row not in self.pending:
+                self.pending.append(row)
+        for p in item.get("pending", []):
+            self.add_pending(ctx, target, p)
 
     def from_list(self, target, items):
         for u in items or []:
@@ -181,7 +193,7 @@ class Unverified:
 
     def render(self):
         lines = ["## 未確定", "",
-                 "コードに候補や根拠はあるが、確定できなかった事実。本文には載せていない。", ""]
+                 "コードに候補や根拠はあるが、確定できなかった事実。本文では確定した事実として扱っていない。", ""]
         if self.pending:
             lines += [table(["対象", "項目", "値", "状態", "理由", "根拠"], self.pending), ""]
         else:
@@ -498,8 +510,8 @@ def render_features(ctx):
         lines += [table(["項目", "内容"], rows), ""]
         if len(f["entrypoints"]) + len(f["tables"]) + len(f["integrations"]) + len(f["events"]) >= 3:
             lines += [_feature_diagram(ctx, f), ""]
-        for note in f["unresolved"]:
-            uv.add(feature_name(f), note, "自動解析で入口から import を 3 段までたどった範囲")
+        for eid in f.get("pendingFrom", []):
+            uv.pending_of(ctx, eid, f"{feature_name(f)}（{code(entity_label(ctx, eid))}）")
     unnamed = [feature_name(f) for f in ctx.features if f["nameSource"] != "annotation"]
     if unnamed:
         more = f" ほか {len(unnamed) - 5} 件" if len(unnamed) > 5 else ""
@@ -1330,8 +1342,8 @@ def render_detail(ctx, f, d):
         lines += [table(["パス"], [[code(x)] for x in f["implementationFiles"]]) or NA, ""]
 
     lines += ["## 根拠", "", f"機能 ID: {code(f['id'])}。各項目の根拠は `.source-docs/evidence.json` を参照。", ""]
-    for note in f["unresolved"]:
-        uv.add(name, note, "自動解析で入口から import を 3 段までたどった範囲")
+    for eid in f.get("pendingFrom", []):
+        uv.pending_of(ctx, eid, code(entity_label(ctx, eid)))
     uv.from_list(name, d.get("unverified"))
     lines += uv.render()
     return "\n".join(lines) + "\n"

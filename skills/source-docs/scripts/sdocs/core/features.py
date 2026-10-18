@@ -49,6 +49,7 @@ class _Acc:
         self.files = set()
         self.evidence = []
         self.unresolved = []
+        self.pending_from = []
         self._seen = set()
 
     def add_entrypoint(self, ep):
@@ -107,6 +108,10 @@ class _Acc:
         for ev in item.get("evidence", []):
             if ev not in self.evidence:
                 self.evidence.append(ev)
+        # 未確定を持つ実体。資料ではその実体の未確定を「未確定」に載せる（入口は元の実体で載せる）
+        source = item.get("target") or item["id"]
+        if (item.get("unresolved") or item.get("pending")) and source not in self.pending_from:
+            self.pending_from.append(source)
         for reason in item.get("unresolved", []):
             note = f"{item['id']}: {reason}"
             if note not in self.unresolved:
@@ -135,6 +140,7 @@ class _Acc:
             "integrations": sorted(self.integrations), "jobs": sorted(self.jobs),
             "events": sorted(self.events), "implementationFiles": sorted(self.files),
             "evidence": self.evidence[:20], "unresolved": self.unresolved,
+            "pendingFrom": self.pending_from,
         }
 
 

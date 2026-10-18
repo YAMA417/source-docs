@@ -206,7 +206,7 @@ class StrapiApiSpecTest(unittest.TestCase):
         try:
             from sdocs.validators.annotations import check
             warnings = check(docs.model, docs.annotations(), docs.out).warnings
-            self.assertTrue(any("注釈の無いAPIが 2 件" in w for w in warnings), warnings)
+            self.assertTrue(any("注釈が足りないAPIが 2 件" in w for w in warnings), warnings)
         finally:
             docs.cleanup()
 

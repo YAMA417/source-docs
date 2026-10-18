@@ -244,8 +244,12 @@ class Checker:
                     need.append("responses")
             if not n.get("summary") and "summary" not in need:
                 need.append("summary")
-            if need and not all(n.get(k) for k in need):
-                gaps["API"].append(e["id"])
+            # 入出力をライブラリが決める API（NextAuth の受け口など）は、未確認（library-owned）に書けば足りる
+            if any(isinstance(u, dict) and u.get("kind") == "library-owned" for u in n.get("unverified") or []):
+                need = [k for k in need if k == "summary"]
+            missing = [k for k in need if not n.get(k)]
+            if missing:
+                gaps["API"].append(f"{e['id']}（{'・'.join(missing)}）")
         for s in self.model["screens"]:
             n = notes.get(s["id"]) or {}
             if s["id"] not in excluded and not (n.get("name") and n.get("summary")):
@@ -256,7 +260,7 @@ class Checker:
         for kind, ids in gaps.items():
             if ids:
                 more = f" ほか {len(ids) - 8} 件" if len(ids) > 8 else ""
-                self.warn("entities", f"注釈の無い{kind}が {len(ids)} 件: {', '.join(ids[:8])}{more}")
+                self.warn("entities", f"注釈が足りない{kind}が {len(ids)} 件: {', '.join(ids[:8])}{more}")
 
     def _capabilities(self):
         raw = self.ann.get("capabilities") or {}
