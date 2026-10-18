@@ -14,8 +14,8 @@ CLI = os.path.join(SCRIPTS, "source_docs.py")
 if SCRIPTS not in sys.path:
     sys.path.insert(0, SCRIPTS)
 
-from sdocs.analyzer import analyze  # noqa: E402
-from sdocs.model import index  # noqa: E402
+from sdocs.core.analyzer import analyze  # noqa: E402
+from sdocs.core.model import index  # noqa: E402
 
 _CACHE = {}
 
@@ -37,6 +37,11 @@ def ids(model, coll):
 
 def by_id(model):
     return index(model)
+
+
+def env_vars(integration):
+    """外部連携の環境変数を {名前: (状態, どこで結び付けたか)} にする。"""
+    return {e["name"]: (e["status"], e["source"]) for e in integration["envVars"]}
 
 
 def write_project(files):
@@ -62,7 +67,7 @@ class ShopDocs:
     """shop fixture を注釈つきで解析・描画した一時ディレクトリ。"""
 
     def __init__(self, annotations=True, fmt="md"):
-        from sdocs.model import model_path, write_json
+        from sdocs.core.model import model_path, write_json
         self.out = tempfile.mkdtemp(prefix="sd-docs-")
         self.model = analyze([fixture("shop")], self.out)
         write_json(model_path(self.out), self.model)
@@ -72,16 +77,21 @@ class ShopDocs:
         self.fmt = fmt
 
     def render(self, **kwargs):
-        from sdocs import annotations as ann
-        from sdocs.render import render_docs
-        return render_docs(self.model, ann.load(self.out), self.out, **kwargs)
+        from sdocs.validators import annotations as ann
+        from sdocs.core.resolve import resolve
+        from sdocs.renderers import render_docs
+        return render_docs(resolve(self.model, ann.load(self.out)), self.out, **kwargs)
+
+    def resolved(self):
+        from sdocs.core.resolve import resolve
+        return resolve(self.model, self.annotations())
 
     def read(self, rel):
         with open(os.path.join(self.out, *rel.split("/")), encoding="utf-8") as f:
             return f.read()
 
     def annotations(self):
-        from sdocs import annotations as ann
+        from sdocs.validators import annotations as ann
         return ann.load(self.out)
 
     def write_annotations(self, data):

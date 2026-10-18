@@ -1,0 +1,53 @@
+{
+  "description": "画面を持たない入口（cron・キュー・イベント）と、その先のテーブル操作",
+  "entities": {
+    "jobs": [
+      "job:cron:cron",
+      "job:queue-consumer:reports"
+    ],
+    "events": [
+      "event:report.created"
+    ],
+    "tables": [
+      "table:reports"
+    ]
+  },
+  "relations": [
+    {
+      "from": "job:cron:cron",
+      "field": "enqueues",
+      "to": "job:queue-consumer:reports",
+      "status": "confirmed"
+    },
+    {
+      "from": "job:queue-consumer:reports",
+      "field": "tables",
+      "to": "table:reports",
+      "status": "confirmed",
+      "operations": [
+        "CREATE"
+      ]
+    },
+    {
+      "from": "job:queue-consumer:reports",
+      "field": "publishes",
+      "to": "event:report.created",
+      "status": "confirmed"
+    }
+  ],
+  "entrypoints": [
+    "entrypoint:cron:cron",
+    "entrypoint:event-handler:report.created <- src/events.ts",
+    "entrypoint:queue-consumer:reports"
+  ],
+  "tables": {
+    "table:reports": {
+      "physicalSource": "drizzle",
+      "columns": {
+        "body": {
+          "nullable": false
+        }
+      }
+    }
+  }
+}

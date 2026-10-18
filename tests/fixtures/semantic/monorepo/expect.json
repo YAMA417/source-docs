@@ -1,0 +1,55 @@
+{
+  "description": "アプリをまたぐ呼び出し。行き先が 1 つに決まらないものは本文に出さず、候補つきで未確定にする",
+  "entities": {
+    "endpoints": [
+      "endpoint:GET /api/items",
+      "endpoint:GET /health@apps/api",
+      "endpoint:GET /health@apps/web",
+      "endpoint:POST /orders"
+    ]
+  },
+  "relations": [
+    {
+      "from": "screen:/@apps/admin",
+      "field": "calls",
+      "to": "endpoint:POST /orders",
+      "status": "confirmed"
+    },
+    {
+      "from": "screen:/@apps/web",
+      "field": "calls",
+      "to": "endpoint:GET /api/items",
+      "status": "confirmed"
+    }
+  ],
+  "absentRelations": [
+    {
+      "from": "screen:/@apps/web",
+      "field": "calls",
+      "to": "endpoint:GET /health@apps/api"
+    },
+    {
+      "from": "screen:/@apps/web",
+      "field": "calls",
+      "to": "endpoint:GET /health@apps/web"
+    }
+  ],
+  "pending": [
+    {
+      "entity": "screen:/@apps/web",
+      "field": "calls",
+      "value": "GET /health",
+      "status": "unresolved",
+      "candidates": [
+        "endpoint:GET /health@apps/api",
+        "endpoint:GET /health@apps/web"
+      ]
+    }
+  ],
+  "diagnostics": [
+    {
+      "code": "relation.calls.unresolved",
+      "severity": "WARNING"
+    }
+  ]
+}

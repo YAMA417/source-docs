@@ -3,7 +3,7 @@
 import json
 import unittest
 
-from helpers import analyze_files, by_id, ids
+from helpers import analyze_files, by_id, env_vars, ids
 
 NEXT = json.dumps({"dependencies": {"next": "15.0.0", "react": "19.0.0"}})
 
@@ -43,18 +43,68 @@ DROP TABLE tmp;
         self.assertEqual(cols["total"]["default"], "0")
         self.assertTrue(cols["memo"]["nullable"])
         self.assertEqual(cols["note"]["default"], "''")
-        self.assertIn(["code", "total"], orders["uniques"])
+        self.assertIn(["code", "total"], [u["columns"] for u in orders["uniques"]])
         self.assertEqual({c["expression"] for c in orders["checks"]}, {"total >= 0", "length(memo) < 100"})
 
     def test_composite_pk_fk_index(self):
         items = self.idx["table:items"]
         self.assertEqual(items["primaryKey"], ["order_id", "sku"])
-        self.assertEqual(items["foreignKeys"][0]["references"], {"table": "orders", "columns": ["id"]})
-        self.assertEqual(items["indexes"], [{"name": "items_sku_idx", "columns": ["sku"], "unique": True}])
+        self.assertEqual(items["physicalForeignKeys"][0]["references"], {"table": "orders", "columns": ["id"]})
+        self.assertEqual(items["physicalForeignKeys"][0]["status"], "confirmed")
+        self.assertEqual(items["indexes"], [{"name": "items_sku_idx", "columns": ["sku"], "unique": True,
+                                             "source": "migration"}])
 
     def test_enum_and_sequence(self):
         self.assertEqual(self.idx["enum:order_status"]["values"], ["pending", "paid"])
         self.assertIn("sequence:invoice_no", ids(self.m, "sequences"))
+
+
+class MysqlMigrationTest(unittest.TestCase):
+    """Prisma が MySQL 向けに出すマイグレーションの書き方（shadcn-ui/taxonomy で見つけたもの）。"""
+
+    def setUp(self):
+        self.m = analyze_files({
+            "package.json": json.dumps({"dependencies": {"@prisma/client": "5"}}),
+            "prisma/schema.prisma": 'model Post {\n  id String @id\n  authorId String\n'
+                                    '  author User @relation(fields: [authorId], references: [id])\n  @@map(name: "posts")\n}\n'
+                                    'model User {\n  id String @id\n  email String? @unique\n  posts Post[]\n'
+                                    '  @@map(name: "users")\n}\n',
+            "prisma/migrations/1_init/migration.sql":
+                "CREATE TABLE `users` (\n  `id` VARCHAR(191) NOT NULL,\n  `email` VARCHAR(191) NULL,\n"
+                "  UNIQUE INDEX `users_email_key`(`email`),\n  PRIMARY KEY (`id`)\n);\n"
+                "CREATE TABLE `posts` (\n  `id` VARCHAR(191) NOT NULL,\n  `authorId` VARCHAR(191) NOT NULL,\n"
+                "  INDEX `posts_authorId_idx`(`authorId`),\n  PRIMARY KEY (`id`)\n);\n"
+                "ALTER TABLE `posts` ADD CONSTRAINT `posts_authorId_fkey` FOREIGN KEY (`authorId`) "
+                "REFERENCES `users`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;\n",
+            "prisma/migrations/2_stripe/migration.sql":
+                "ALTER TABLE `posts` DROP FOREIGN KEY `posts_authorId_fkey`;\n"
+                "ALTER TABLE `users` ADD COLUMN `stripe_customer_id` VARCHAR(191) NULL,\n"
+                "    ADD COLUMN `stripe_price_id` VARCHAR(191) NULL;\n",
+        })
+        self.idx = by_id(self.m)
+
+    def test_inline_unique_and_plain_index(self):
+        users = self.idx["table:users"]
+        self.assertIn({"name": "users_email_key", "columns": ["email"], "unique": True, "source": "migration"},
+                      users["indexes"])
+        posts = self.idx["table:posts"]
+        self.assertIn({"name": "posts_authorId_idx", "columns": ["authorId"], "unique": False,
+                       "source": "migration"}, posts["indexes"])
+
+    def test_alter_with_several_columns(self):
+        cols = {c["name"]: c["type"] for c in self.idx["table:users"]["columns"]}
+        self.assertEqual(cols["stripe_customer_id"], "VARCHAR(191)")
+        self.assertEqual(cols["stripe_price_id"], "VARCHAR(191)")
+
+    def test_dropped_fk_is_not_a_db_fk_but_orm_relation_remains(self):
+        posts = self.idx["table:posts"]
+        self.assertEqual(posts["droppedForeignKeys"], ["posts_authorId_fkey"])
+        # DB の外部キーは migration で消えた。Prisma の relation は ORM の関係として別に残る
+        self.assertEqual(posts["physicalForeignKeys"], [])
+        self.assertEqual([(r["name"], r["source"], r["physicalForeignKey"]) for r in posts["ormRelations"]],
+                         [("author", "prisma", False)])
+        self.assertIn("posts_authorId_fkey", posts["ormRelations"][0]["physicalForeignKeyReason"])
+        self.assertEqual(posts["physicalSource"], "migration")
 
 
 class PrismaTest(unittest.TestCase):
@@ -90,8 +140,13 @@ enum Role {
         self.assertEqual(cols["email"]["type"], "String (VarChar(255))")
         self.assertEqual(cols["role"]["default"], "MEMBER")
         post = idx["table:Post"]
-        self.assertEqual(post["foreignKeys"], [{"columns": ["author_id"],
-                                                "references": {"table": "users", "columns": ["id"]}}])
+        # Prisma の relation は物理 FK の根拠にしない
+        self.assertEqual(post["physicalForeignKeys"], [])
+        self.assertEqual(post["ormRelations"], [{"name": "author", "columns": ["author_id"],
+                                                 "references": {"table": "users", "columns": ["id"]},
+                                                 "onDelete": None, "source": "prisma", "status": "confirmed",
+                                                 "physicalForeignKey": None,
+                                                 "physicalForeignKeyReason": "migration が無く、DB に外部キーがあるかを確かめられない"}])
         self.assertTrue({c["name"]: c for c in post["columns"]}["title"]["nullable"])
         self.assertEqual(post["indexes"][0]["name"], "posts_author_idx")
         self.assertEqual(idx["enum:Role"]["values"], ["ADMIN", "MEMBER"])
@@ -106,9 +161,11 @@ class NextJsTest(unittest.TestCase):
             "app/blog/[...slug]/page.tsx": "export default function B() { return null }",
             "app/api/items/[id]/route.ts": "async function h() {}\nexport { h as GET, h as DELETE };\n",
             "app/api/broken/route.ts": "export const dynamic = 'force-dynamic';\n",
+            "app/api/og/route.tsx": "export function GET() { return null }\n",
         })
         self.assertEqual(ids(m, "screens"), ["screen:/blog/*slug", "screen:/cart", "screen:/login"])
-        self.assertEqual(ids(m, "endpoints"), ["endpoint:DELETE /api/items/:id", "endpoint:GET /api/items/:id"])
+        self.assertEqual(ids(m, "endpoints"), ["endpoint:DELETE /api/items/:id", "endpoint:GET /api/items/:id",
+                                               "endpoint:GET /api/og"])
         self.assertEqual(m["unsupported"][0]["file"], "app/api/broken/route.ts")
 
     def test_pages_router_api_without_method_is_unresolved(self):
@@ -121,7 +178,7 @@ class NextJsTest(unittest.TestCase):
         })
         self.assertEqual(ids(m, "screens"), ["screen:/"])
         idx = by_id(m)
-        self.assertEqual(idx["endpoint:POST /api/a"]["status"], "detected")
+        self.assertEqual(idx["endpoint:POST /api/a"]["status"], "confirmed")
         self.assertEqual(idx["endpoint:ANY /api/b"]["status"], "unresolved")
 
     def test_server_actions_are_rpc(self):
@@ -335,8 +392,8 @@ class RealWorldLessonsTest(unittest.TestCase):
         auth = idx["endpoint:ANY /api/auth/*nextauth"]
         self.assertEqual(sorted(r["id"] for r in auth["integrations"]),
                          ["integration:github-oauth", "integration:postmark"])
-        self.assertEqual(idx["integration:postmark"]["envVars"], ["POSTMARK_API_TOKEN"])
-        self.assertEqual(idx["integration:github-oauth"]["envVars"], ["GITHUB_CLIENT_ID"])
+        self.assertEqual(env_vars(idx["integration:postmark"]), {"POSTMARK_API_TOKEN": ("confirmed", "client-init")})
+        self.assertEqual(env_vars(idx["integration:github-oauth"]), {"GITHUB_CLIENT_ID": ("confirmed", "client-init")})
 
 
 class RealRunFeedbackTest(unittest.TestCase):
@@ -362,3 +419,68 @@ class RealRunFeedbackTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FactStatusTest(unittest.TestCase):
+    """事実の状態（confirmed / inferred / unresolved / conflict）が根拠どおりに付く。"""
+
+    def test_env_used_only_in_same_file_is_unresolved(self):
+        m = analyze_files({
+            "package.json": json.dumps({"dependencies": {"stripe": "14"}}),
+            "lib/pay.ts": "import Stripe from 'stripe';\nconst s = new Stripe(process.env.STRIPE_KEY!);\n"
+                          "const base = process.env.APP_BASE_URL;\nexport const pay = () => s.charges.create({});\n",
+        })
+        self.assertEqual(env_vars(by_id(m)["integration:stripe"]), {
+            "STRIPE_KEY": ("confirmed", "client-init"), "APP_BASE_URL": ("unresolved", "same-file")})
+
+    def test_env_passed_through_variable_is_inferred(self):
+        m = analyze_files({
+            "package.json": json.dumps({"dependencies": {"openai": "4"}}),
+            "lib/ai.ts": "import OpenAI from 'openai';\nconst key = process.env.OPENAI_KEY;\n"
+                         "export const ai = new OpenAI({ apiKey: key });\n",
+        })
+        self.assertEqual(env_vars(by_id(m)["integration:openai"]), {"OPENAI_KEY": ("inferred", "init-variable")})
+
+    def test_same_precedence_sources_disagreeing_is_conflict(self):
+        """migration が無く、同じ優先度の 2 つの定義（Drizzle と SQLAlchemy）が NULL 可否で食い違う。"""
+        m = analyze_files({
+            "package.json": json.dumps({"dependencies": {"drizzle-orm": "0.30"}}),
+            "src/schema.ts": "export const users = pgTable('users', {\n  id: serial('id').primaryKey(),\n"
+                             "  email: text('email').notNull(),\n});\n",
+            "requirements.txt": "sqlalchemy\nfastapi\n",
+            "models.py": "class User(Base):\n    __tablename__ = 'users'\n"
+                         "    id = Column(Integer, primary_key=True)\n    email = Column(String, nullable=True)\n",
+        })
+        users = by_id(m)["table:users"]
+        self.assertEqual([d["severity"] for d in m["diagnostics"] if d["code"] == "db.conflict"], ["ERROR"])
+        # 矛盾したカラムは本文用の columns に残さず、未確定へ送る
+        self.assertNotIn("email", [c["name"] for c in users["columns"]])
+        self.assertIn(("columns", "email", "conflict"),
+                      [(p["field"], p["value"], p["status"]) for p in users["pending"]])
+
+    def test_depth_decides_relation_status(self):
+        m = analyze_files({
+            "package.json": json.dumps({"dependencies": {"next": "15", "drizzle-orm": "0.30"}}),
+            "src/schema.ts": "export const a = pgTable('a', { id: serial('id') });\n",
+            "src/repo.ts": "import { a } from './schema';\nexport async function listA() {\n"
+                           "  return db.select().from(a);\n}\n",
+            "app/api/a/route.ts": "import { listA } from '@/repo';\nimport { a } from '@/schema';\n"
+                                  "export async function GET() { await db.delete(a); return listA(); }\n",
+        })
+        rel = by_id(m)["endpoint:GET /api/a"]["tables"][0]
+        # 入口のコード片で直接 DELETE、import 先で READ。同じテーブルなら強い方（confirmed）になる
+        self.assertEqual((rel["id"], rel["operations"], rel["status"]), ("table:a", ["READ", "DELETE"], "confirmed"))
+
+
+class EnvScopeTest(unittest.TestCase):
+    def test_same_scope_is_unresolved_and_only_for_that_integration(self):
+        m = analyze_files({
+            "package.json": json.dumps({"dependencies": {"stripe": "14", "openai": "4"}}),
+            "lib/both.ts": "import Stripe from 'stripe';\nimport OpenAI from 'openai';\n"
+                           "const s = new Stripe(process.env.STRIPE_KEY!);\nconst ai = new OpenAI({ apiKey: process.env.OPENAI_KEY });\n"
+                           "export async function pay() {\n  const currency = process.env.PAY_CURRENCY;\n"
+                           "  return s.charges.create({});\n}\n",
+        })
+        idx = by_id(m)
+        self.assertEqual(env_vars(idx["integration:stripe"])["PAY_CURRENCY"], ("unresolved", "same-scope"))
+        self.assertNotIn("PAY_CURRENCY", env_vars(idx["integration:openai"]))

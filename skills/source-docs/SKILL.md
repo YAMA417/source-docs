@@ -8,18 +8,32 @@ description: 既存プロジェクトのソースコードを解析し、シス�
 対象プロジェクトのソースコードから、**システム全体 → 機能 → 入口 → API / DB / 外部連携 → 実装**
 まで辿れる資料を作る。
 
-**最重要要件 — ソースコードから確認できないことを事実として書かない。**
-分からなかったことは「未確認」とし、**調べた範囲**を残す。
+**最重要要件 — 誤った情報を、確定した情報として資料に出さない。**
+分からなかったことは「未確認」とし、**調べた範囲**を残す。根拠どうしが食い違うものは「未確定」に送る。
 
 ## 仕組み
 
 ```
-ソースコード ─ analyze ─▶ project-model.json（機械で確かめた事実・根拠つき）
+ソースコード ─ analyze ─▶ project-model.json（機械で確かめた事実・根拠と状態つき）
                                    │
-あなた（Claude）がコードを読む ─▶ annotations.json（意味づけ・根拠つき）
+あなた（Claude）がコードを読む ─▶ annotations.json（意味づけ・根拠つき。解析結果への異議も書ける）
                                    │
-                         check ─▶ render ─▶ Markdown / HTML / evidence.json / coverage.json
+                lint ─▶ render（根拠の解決 → 矛盾の解決 → 品質ゲート → 描画）
+                                   ▼
+                Markdown / HTML / evidence.json / coverage.json
+                                   │
+                         check（古さ・矛盾・機密・網羅率）── CI では --strict
 ```
+
+事実にはすべて状態が付く。本文に書くのは確定したものだけ。
+
+| 状態 | 意味 | 資料での扱い |
+| --- | --- | --- |
+| confirmed | コードの宣言・入口のコードで直接確かめた | 本文 |
+| inferred | import をたどった先・規約から、根拠付きで判断した | 本文 |
+| unresolved | 候補はあるが決められない（行き先が複数・名前が似ているだけ） | 末尾の「未確定」 |
+| conflict | 根拠どうしが食い違う | 末尾の「未確定」。`check` は ERROR |
+| unsupported | 解析器が読めない書き方 | 末尾の「未確認」 |
 
 - **画面・API・テーブル・外部連携・ジョブ・イベント・機能の候補は、解析器が決める。** 自分で数え直さない
 - **あなたが書くのは `annotations.json` だけ。** 機能の業務名、目的、入出力、詳細設計など、
@@ -64,8 +78,9 @@ python3 <skill-dir>/scripts/source_docs.py <サブコマンド> [--out <dir>]
 | `analyze --repo <path>` | 解析して Project Model を書く。機能の候補も出す |
 | `features` / `show <ID>` | 機能の一覧 / 1 つの実体の中身・関係・根拠 |
 | `scaffold --feature <機能> --kind detail\|flow --write` | 詳細設計・処理概要の注釈の雛形を足す |
-| `check` | 注釈を検査する |
+| `lint` | 注釈を検査する |
 | `render [--only a,b] [--feature X --kind detail] [--format both]` | 資料を書く。機密検出と coverage も走る |
+| `check [--strict] [--min-api-coverage N] [--min-screen-coverage N]` | 資料一式の健全性（古さ・矛盾・機密・網羅率）。ERROR があれば終了コード 1 |
 | `coverage` / `verify` | コード → 資料の漏れ / 資料 → コードの実在 |
 | `secrets --doc <path>` | 機密の検出 |
 
@@ -78,7 +93,7 @@ python3 <skill-dir>/scripts/source_docs.py <サブコマンド> [--out <dir>]
 | --- | --- |
 | 環境変数の実ファイル | `.env` / `.env.local` / `.env.production` |
 | 鍵そのもの | `*.pem` / `*.key` / `*.p12` / `*.jks` / `id_rsa` |
-| 認証情報ファイル | `credentials.json` / `service-account.json` / `.npmrc` / `.netrc` |
+| 認証情報ファイル | `credentials.json` / `service-account.json` / `.npmrc` / `.netrc` / `.git-credentials` / `.pgpass` / `*.tfvars` |
 | ディレクトリごと | `.ssh/` / `.aws/` / `.gnupg/` / `.kube/` / `credentials/` / `secrets/` |
 | シンボリックリンク | 名前が `schema.ts` でもリンク先は分からない |
 
@@ -119,15 +134,29 @@ python3 <skill-dir>/scripts/source_docs.py analyze --repo <path> [--repo <path>.
 - `show <ID>` で、実体の定義場所と関係の根拠（ファイルと行）を得てから、そのファイルを**実際に開いて読む**
 - 書いたことには `evidence`（根拠のファイル）を付ける。**分からなければ書かずに `unverified` に送り、`searched`（調べた範囲）を書く**
 - 全体資料を作るときは、**まとめて全部書かない。** `database` の分から始め、ゲート ② で型を決める
+- **API・画面・テーブルは全件に注釈を付ける。** 一部だけでは「未確認」だらけの資料になり、使えない。
+  `lint` の「注釈の無い〜」の警告が 0 件になるまで書く
+- **解析結果がコードと食い違うと確かめたら、`disputes` に書く**（書式は `references/annotations.md`）。
+  その事実は本文から外れ「未確定（矛盾）」に移る。**本文に誤りを残したまま、未確認欄で訂正する書き方をしない**
+- 未確認には `kind` を付ける。調べ足りないのか、リポジトリの外（ライブラリ・実行時の設定）で決まるのかを分ける
 
 ### 02 検査と生成
 
 ```bash
-python3 <skill-dir>/scripts/source_docs.py check --out <out>
+python3 <skill-dir>/scripts/source_docs.py lint --out <out>
 python3 <skill-dir>/scripts/source_docs.py render --out <out> [--only database] [--format both]
 ```
 
-- `check` の ERROR は全部直してから `render` する。`render` は誤りがあると書き出さない
+- `lint` の ERROR は全部直してから `render` する。`render` は誤りがあると書き出さない
+- `render` は描画の前に**品質ゲート**を通す。次の ERROR があると資料を書き出さずに止まる。直すのは注釈
+
+  | ERROR | 意味 | 直し方 |
+  | --- | --- | --- |
+  | `gate.body-vs-unverified` | 本文で確定している事実を、注釈の未確認で「分からない」と書いた | 本文が誤りなら `disputes` に書く。分かっているなら未確認から消す |
+  | `gate.common-overclaim` | 共通仕様（`api`）が、個別の API より強く断定している（例: 未ログインなら 403） | 全 API に当てはまることだけを書く。未ログイン時の応答の行は機械が個別の API から集めて書く |
+  | `gate.endpoint-overclaim` | API の `auth` が、コードの分岐で確かめられない未ログイン時の応答を書いている | 応答を書かない（未確定に出る）か、分岐の箇所を確かめる |
+  | `gate.contaminated` / `gate.multiple-values` / `gate.db-not-final` | 解析器の誤り | 人間に報告する |
+  | `secret.annotation` | 注釈に認証情報らしき値がある | その場で人間に見せる |
 - WARN の「古い注釈」は、コードの変更や再解析で対象の ID が無くなったもの。資料には反映されない。
   `features` で今の候補を確かめ、付け直すか消す。完了報告でも件数を伝える
 - **機密を検出したら、リトライせずその場で人間に見せる。** 伏せ字にする判断を機械にさせない
@@ -142,7 +171,7 @@ python3 <skill-dir>/scripts/source_docs.py render --out <out> [--only database] 
 
 ```bash
 python3 <skill-dir>/scripts/source_docs.py verify --out <out>
-python3 <skill-dir>/scripts/source_docs.py coverage --out <out>
+python3 <skill-dir>/scripts/source_docs.py check --out <out>
 ```
 
 `verify` の不一致は注釈を直して再生成する（1 回まで）。2 回目も残れば未確認として理由を書く。
@@ -150,9 +179,9 @@ python3 <skill-dir>/scripts/source_docs.py coverage --out <out>
 完了報告で必ず出すもの。
 
 1. 生成したファイルの一覧
-2. **未確認一覧** — 各資料末尾のものを集約する
+2. **未確定一覧と未確認一覧** — 各資料末尾のものを集約する。矛盾（conflict）は件数と中身を必ず出す
 3. 機密検出の結果 — 0 件だったことも明示する
-4. coverage — 種別ごとの documented / detected と、undocumented・unresolved・unsupported・excluded
+4. `check` の結果 — ERROR / WARNING の件数と、Documentation Health（検出・関係・事実の状態）
 5. 名前未確定のまま残った機能の数
 
 ---
@@ -168,4 +197,5 @@ python3 <skill-dir>/scripts/source_docs.py coverage --out <out>
 ## 未実装
 
 差分だけの再生成は無い（`analyze` → `render` の全体再生成で対応する。注釈は保たれる）。
+`check` は資料が古いことと、増えた・消えた API や画面を知らせるが、直すのは再生成で行う。
 Notion・Excel への出力は含まない。**頼まれても勝手に実装しない。**

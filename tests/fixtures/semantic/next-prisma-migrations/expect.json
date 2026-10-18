@@ -1,0 +1,128 @@
+{
+  "description": "migration を順に適用した最終状態を物理状態にする。Prisma の relation は ORM の関係として分ける",
+  "entities": {
+    "tables": [
+      "table:posts",
+      "table:users"
+    ],
+    "endpoints": [
+      "endpoint:GET /api/users"
+    ]
+  },
+  "tables": {
+    "table:users": {
+      "physicalSource": "migration",
+      "columns": {
+        "id": {
+          "nullable": false,
+          "primaryKey": true
+        },
+        "email": {
+          "nullable": false
+        },
+        "name": {
+          "nullable": true
+        }
+      },
+      "absentColumns": [
+        "legacy_flag",
+        "nickname"
+      ],
+      "indexes": [
+        {
+          "name": "users_email_key",
+          "columns": [
+            "email"
+          ],
+          "unique": true
+        }
+      ]
+    },
+    "table:posts": {
+      "physicalSource": "migration",
+      "renamedFrom": [
+        "articles"
+      ],
+      "columns": {
+        "title": {
+          "type": "TEXT",
+          "nullable": false
+        },
+        "author_id": {
+          "nullable": false
+        },
+        "published": {
+          "nullable": false,
+          "default": null
+        }
+      },
+      "absentColumns": [
+        "user_id",
+        "draft_note"
+      ],
+      "physicalForeignKeys": [
+        {
+          "name": "posts_author_id_fkey",
+          "columns": [
+            "author_id"
+          ],
+          "references": {
+            "table": "users",
+            "columns": [
+              "id"
+            ]
+          }
+        }
+      ],
+      "droppedForeignKeys": [
+        "articles_user_id_fkey"
+      ],
+      "ormRelations": [
+        {
+          "name": "author",
+          "columns": [
+            "author_id"
+          ],
+          "references": {
+            "table": "users"
+          }
+        }
+      ]
+    }
+  },
+  "pending": [
+    {
+      "entity": "table:users",
+      "field": "columns",
+      "value": "nickname",
+      "status": "unresolved"
+    }
+  ],
+  "diagnostics": [
+    {
+      "code": "db.orm-only-column",
+      "severity": "WARNING"
+    }
+  ],
+  "absentDiagnostics": [
+    "db.orm-drift",
+    "db.conflict"
+  ],
+  "docs": {
+    "database.md": {
+      "bodyContains": [
+        "定義の根拠: migration（migration を順に適用した最終状態）",
+        "FK → users.id",
+        "| `email` | TEXT | 不可 | — | UK | — |"
+      ],
+      "bodyNotContains": [
+        "`nickname`",
+        "`legacy_flag`",
+        "`draft_note`"
+      ],
+      "pendingContains": [
+        "`nickname`"
+      ]
+    }
+  }
+}

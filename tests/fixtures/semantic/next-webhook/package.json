@@ -1,0 +1,9 @@
+{
+  "name": "next-webhook",
+  "dependencies": {
+    "next": "14.2.0",
+    "stripe": "14.0.0",
+    "next-auth": "4.24.0",
+    "postmark": "3.0.0"
+  }
+}

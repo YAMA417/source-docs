@@ -8,7 +8,7 @@ import json
 import os
 import unittest
 
-from helpers import by_id, fixture, ids, model_of
+from helpers import by_id, env_vars, fixture, ids, model_of
 
 EXPECTED_FEATURES = {
     # (機能 ID, 種別): (入口, テーブル操作, 外部連携, ジョブ, イベント)
@@ -72,7 +72,9 @@ class ShopEntitiesTest(unittest.TestCase):
     def test_integrations(self):
         stripe = by_id(self.m)["integration:stripe"]
         self.assertEqual(sorted(stripe["directions"]), ["inbound", "outbound"])
-        self.assertEqual(stripe["envVars"], ["STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET"])
+        # 初期化の引数（new Stripe(...)）と、作ったクライアントの呼び出しの引数から結び付けた
+        self.assertEqual(env_vars(stripe), {"STRIPE_SECRET_KEY": ("confirmed", "client-init"),
+                                            "STRIPE_WEBHOOK_SECRET": ("confirmed", "call-site")})
         host = by_id(self.m)["integration:host:api.example-warehouse.test"]
         self.assertEqual(host["directions"], ["outbound"])
 

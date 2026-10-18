@@ -1,0 +1,84 @@
+{
+  "description": "環境変数を、初期化・呼び出しの引数から外部連携に結び付ける。名前が似ているだけでは確定させない",
+  "entities": {
+    "integrations": [
+      "integration:email-login",
+      "integration:github-oauth",
+      "integration:host:api.github.com",
+      "integration:postmark",
+      "integration:stripe"
+    ]
+  },
+  "envVars": {
+    "integration:stripe": {
+      "STRIPE_API_KEY": "confirmed",
+      "STRIPE_WEBHOOK_SECRET": "confirmed"
+    },
+    "integration:github-oauth": {
+      "GITHUB_CLIENT_ID": "confirmed",
+      "GITHUB_CLIENT_SECRET": "confirmed"
+    },
+    "integration:email-login": {
+      "SMTP_FROM": "confirmed"
+    },
+    "integration:postmark": {
+      "POSTMARK_API_TOKEN": "confirmed",
+      "POSTMARK_SIGN_IN_TEMPLATE": "inferred"
+    },
+    "integration:host:api.github.com": {
+      "GITHUB_ACCESS_TOKEN": "confirmed"
+    }
+  },
+  "absentEnvVars": {
+    "integration:github-oauth": [
+      "SMTP_FROM",
+      "GITHUB_UNUSED_TOKEN",
+      "GITHUB_ACCESS_TOKEN"
+    ],
+    "integration:email-login": [
+      "POSTMARK_API_TOKEN",
+      "POSTMARK_SIGN_IN_TEMPLATE"
+    ],
+    "integration:stripe": [
+      "SMTP_FROM"
+    ]
+  },
+  "pending": [
+    {
+      "entity": "integration:github-oauth",
+      "field": "envVars",
+      "value": "GITHUB_UNUSED_TOKEN",
+      "status": "unresolved"
+    }
+  ],
+  "relations": [
+    {
+      "from": "endpoint:POST /api/webhooks/stripe",
+      "field": "integrations",
+      "to": "integration:stripe",
+      "status": "inferred"
+    },
+    {
+      "from": "endpoint:POST /api/auth/*nextauth",
+      "field": "integrations",
+      "to": "integration:github-oauth",
+      "status": "inferred"
+    }
+  ],
+  "webhooks": [
+    "endpoint:POST /api/webhooks/stripe"
+  ],
+  "docs": {
+    "integrations.md": {
+      "bodyNotContains": [
+        "GITHUB_UNUSED_TOKEN"
+      ],
+      "pendingContains": [
+        "GITHUB_UNUSED_TOKEN"
+      ]
+    }
+  },
+  "docsNeverContain": [
+    "sk_test_should_never_appear_in_docs"
+  ]
+}

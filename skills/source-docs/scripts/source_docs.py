@@ -5,7 +5,8 @@
     features  機能の候補（と確定済みの機能）を一覧する
     show      1 つの実体の中身・関係・根拠を見る
     scaffold  詳細設計・処理概要の注釈の雛形を作る
-    check     注釈（annotations.json）を検査する
+    lint      注釈（annotations.json）を検査する
+    check     資料一式の健全性（古さ・矛盾・機密・網羅率）を診断する。CI では --strict
     render    資料（Markdown / HTML）と evidence.json・coverage.json を書く
     coverage  コードにあるもののうち、資料に載っている割合（source → docs）
     verify    資料に書いた識別子がコードに実在するか（docs → source）
@@ -22,15 +23,17 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from sdocs import annotations as ann_mod  # noqa: E402
-from sdocs import coverage as cov_mod  # noqa: E402
-from sdocs import secrets as sec_mod  # noqa: E402
-from sdocs.analyzer import analyze  # noqa: E402
-from sdocs.features import TYPE_LABEL, apply_annotations, feature_slug  # noqa: E402
-from sdocs.model import index, load_model, model_dir, model_path, write_json  # noqa: E402
-from sdocs.render import find_feature, render_docs, write_evidence  # noqa: E402
-from sdocs.render.html import write_site  # noqa: E402
-from sdocs.verify import verify as verify_docs  # noqa: E402
+from sdocs.validators import annotations as ann_mod  # noqa: E402
+from sdocs.validators import coverage as cov_mod  # noqa: E402
+from sdocs.validators import secrets as sec_mod  # noqa: E402
+from sdocs.core.analyzer import analyze  # noqa: E402
+from sdocs.core.features import TYPE_LABEL, feature_slug  # noqa: E402
+from sdocs.core.model import index, load_model, model_dir, model_path, write_json  # noqa: E402
+from sdocs.core.resolve import resolve  # noqa: E402
+from sdocs.validators import health as health_mod  # noqa: E402
+from sdocs.renderers import QualityGateError, find_feature, render_docs, write_evidence  # noqa: E402
+from sdocs.renderers.html import write_site  # noqa: E402
+from sdocs.validators.verify import verify as verify_docs  # noqa: E402
 
 DEFAULT_OUT = os.path.join("docs", "system")
 
@@ -97,7 +100,7 @@ def _print_features(model, features):
 def cmd_features(args):
     model = load_model(_out(args))
     annotations = ann_mod.load(_out(args))
-    features = apply_annotations(model, annotations)
+    features = resolve(model, annotations)["features"]
     if args.json:
         print(json.dumps(features, ensure_ascii=False, indent=2))
     else:
@@ -108,8 +111,9 @@ def cmd_features(args):
 def cmd_show(args):
     model = load_model(_out(args))
     annotations = ann_mod.load(_out(args))
-    idx = index(model)
-    features = apply_annotations(model, annotations)
+    view = resolve(model, annotations)
+    idx = index(view)
+    features = view["features"]
     item = idx.get(args.id) or find_feature(features, args.id)
     if item is None:
         print(f"error: 見つからない: {args.id}", file=sys.stderr)
@@ -163,7 +167,7 @@ def cmd_scaffold(args):
     out_dir = _out(args)
     model = load_model(out_dir)
     annotations = ann_mod.load(out_dir)
-    feature = find_feature(apply_annotations(model, annotations), args.feature)
+    feature = find_feature(resolve(model, annotations)["features"], args.feature)
     if feature is None:
         print(f"error: 機能が見つからない: {args.feature}（`features` で候補を確認する）", file=sys.stderr)
         return 2
@@ -195,15 +199,30 @@ def _check(out_dir, quiet=False):
     return model, annotations, result
 
 
-def cmd_check(args):
+def cmd_lint(args):
     model, annotations, result = _check(_out(args))
     blocking = sec_mod.blocking(result.secret_findings)
     for f in sec_mod.masked(result.secret_findings):
         print(f"  SECRET L{f['line']} [{f['label']}] {f['value']}{' (ダミーの可能性)' if f['looksDummy'] else ''}")
     ok = not result.errors and not result.secret_findings
-    print(f"CHECK errors={len(result.errors)} warnings={len(result.warnings)} "
+    print(f"LINT errors={len(result.errors)} warnings={len(result.warnings)} "
           f"secrets={len(result.secret_findings)} RESULT={'OK' if ok else 'REVIEW_REQUIRED'}")
     return 0 if ok and not blocking else 1
+
+
+def cmd_check(args):
+    thresholds = {opt: getattr(args, opt) for opt, _, _ in health_mod.THRESHOLDS}
+    diags, info = health_mod.run(_out(args), strict=args.strict, thresholds=thresholds,
+                                 reanalyze=not args.no_reanalyze)
+    view = info.get("view")
+    if args.json:
+        print(json.dumps({"ok": not health_mod.failed(diags), "strict": args.strict,
+                          "result": health_mod.result_of(diags, view),
+                          "quality": view["quality"] if view else None, "diagnostics": diags,
+                          "stale": info.get("stale")}, ensure_ascii=False, indent=2))
+    else:
+        print(health_mod.format_text(diags, view))
+    return 1 if health_mod.failed(diags) else 0
 
 
 def cmd_render(args):
@@ -226,10 +245,19 @@ def cmd_render(args):
         # 機能を指定したときは、その機能の資料だけを書く。全体資料も要るなら --only で足す
         only = []
     kinds = (args.kind,) if args.kind else ("flow", "detail")
-    written = render_docs(model, annotations, out_dir, only=only, feature_keys=args.feature or (),
-                          kinds=kinds)
-    written.append(write_evidence(model, annotations, out_dir))
-    cov = cov_mod.compute(model, annotations, out_dir)
+    # Project Model → Evidence / Conflict Resolution → Quality Gate → Resolved Project Model → 描画
+    resolved = resolve(model, annotations)
+    try:
+        written = render_docs(resolved, out_dir, only=only, feature_keys=args.feature or (), kinds=kinds)
+    except QualityGateError as e:
+        for d in e.diagnostics:
+            print(f"  ERROR {d['code']}: {d['message']}")
+        print(f"error: 品質ゲートの ERROR が {len(e.diagnostics)} 件ある。資料を書き出さずに止めた。"
+              "注釈を直す（本文が誤りなら disputes、分かっているなら未確認から消す）", file=sys.stderr)
+        return 1
+    written.append(write_evidence(resolved, out_dir))
+    written.append(os.path.join(model_dir(out_dir), "facts.json"))
+    cov = cov_mod.compute(model, annotations, out_dir, view=resolved)
     cov_path = os.path.join(model_dir(out_dir), "coverage.json")
     write_json(cov_path, cov)
     written.append(cov_path)
@@ -238,7 +266,8 @@ def cmd_render(args):
     for p in written:
         print(f"WROTE {p}")
 
-    findings = sec_mod.scan_paths([p for p in written if p.endswith(".md")])
+    # 書いたものはすべて検査する（Markdown・evidence / coverage の JSON・HTML）
+    findings = sec_mod.scan_paths([p for p in written if p.endswith((".md", ".json", ".html"))])
     total = sum(len(v) for v in findings.values())
     for path, items in findings.items():
         for f in sec_mod.masked(items):
@@ -246,6 +275,7 @@ def cmd_render(args):
                   f"{' (ダミーの可能性)' if f['looksDummy'] else ''}")
     print(f"SECRETS={total} RESULT={'OK' if not total else 'REVIEW_REQUIRED'}")
     print(cov_mod.format_text(cov))
+    print(f"Documentation Status: {resolved['documentationStatus']}")
     return 0 if not total else 1
 
 
@@ -261,7 +291,7 @@ def cmd_coverage(args):
     else:
         print(cov_mod.format_text(cov))
     if args.fail_under is not None:
-        low = [k for k, r in cov["kinds"].items()
+        low = [k for k, r in cov["detection"].items()
                if r["coverage"] is not None and r["coverage"] * 100 < args.fail_under]
         if low:
             print(f"FAIL coverage < {args.fail_under}%: {', '.join(low)}")
@@ -351,7 +381,17 @@ def build_parser():
     p.add_argument("--write", action="store_true", help="annotations.json に書き込む（既存は上書きしない）")
     p.set_defaults(func=cmd_scaffold)
 
-    p = with_out(sub.add_parser("check", help="注釈を検査する"))
+    p = with_out(sub.add_parser("lint", help="注釈を検査する"))
+    p.set_defaults(func=cmd_lint)
+
+    p = with_out(sub.add_parser("check", help="資料一式の健全性を診断する（ERROR があれば終了コード 1）"))
+    p.add_argument("--strict", action="store_true",
+                   help="CI 用。資料の古さと網羅率の閾値割れも ERROR にする")
+    p.add_argument("--min-api-coverage", type=float, help="API の網羅率の下限（%%）")
+    p.add_argument("--min-screen-coverage", type=float, help="画面の網羅率の下限（%%）")
+    p.add_argument("--min-table-coverage", type=float, help="DB テーブルの網羅率の下限（%%）")
+    p.add_argument("--no-reanalyze", action="store_true", help="コードを再解析して差分を見ることをしない")
+    p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_check)
 
     p = with_out(sub.add_parser("render", help="資料を書く"))

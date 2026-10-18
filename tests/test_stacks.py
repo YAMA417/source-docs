@@ -48,7 +48,11 @@ class NextJsStrapiTest(unittest.TestCase):
         self.assertIn("note", cols["id"])
         self.assertIn("published_at", cols)  # draftAndPublish: true
         self.assertNotIn("note", cols["title"])
-        self.assertEqual(books["relations"][0]["targetTable"], "authors")
+        # Strapi の relation は ORM の関係。規約で作るカラムは inferred
+        self.assertEqual(books["ormRelations"][0]["references"]["table"], "authors")
+        self.assertEqual(books["ormRelations"][0]["relation"], "manyToOne")
+        self.assertEqual(cols["created_at"]["status"], "inferred")
+        self.assertEqual(cols["title"]["status"], "confirmed")
 
     def test_core_crud_does_not_absorb_custom_action(self):
         """コアの GET に、独自アクション（archive の UPDATE）を混ぜない。"""
@@ -90,8 +94,11 @@ class NextHonoDrizzleTest(unittest.TestCase):
 
     def test_drizzle_constraints(self):
         loans = by_id(self.m)["table:loans"]
-        self.assertEqual(loans["foreignKeys"], [{"columns": ["book_id"],
-                                                 "references": {"table": "books", "columns": ["id"]}}])
+        # migration が無いので `.references()` を物理 FK の根拠にする（inferred）
+        self.assertEqual(loans["physicalForeignKeys"], [{"name": None, "columns": ["book_id"],
+                                                         "references": {"table": "books", "columns": ["id"]},
+                                                         "source": "drizzle", "status": "inferred"}])
+        self.assertEqual(loans["physicalSource"], "drizzle")
         self.assertEqual(loans["checks"][0]["name"], "loans_days_positive")
         cols = {c["name"]: c for c in by_id(self.m)["table:books"]["columns"]}
         self.assertEqual(cols["available"]["default"], "true")
@@ -129,7 +136,7 @@ class ExpoSupabaseTest(unittest.TestCase):
         idx = by_id(self.m)
         logs = idx["table:audit_logs"]
         self.assertEqual(logs["indexes"][0]["name"], "audit_logs_profile_idx")
-        self.assertEqual(logs["foreignKeys"][0]["references"]["table"], "profiles")
+        self.assertEqual(logs["physicalForeignKeys"][0]["references"]["table"], "profiles")
         self.assertEqual(logs["checks"][0]["expression"], "action <> ''")
         profiles = idx["table:profiles"]
         self.assertEqual(profiles["triggers"][0]["name"], "profiles_audit")
@@ -158,8 +165,8 @@ class OtherStacksTest(unittest.TestCase):
         m = model_of("py-fastapi")
         self.assertEqual(ids(m, "endpoints"), ["endpoint:GET /books", "endpoint:POST /books"])
         post = by_id(m)["endpoint:POST /books"]
-        self.assertEqual(post["tables"], [{"id": "table:books", "operations": ["CREATE"],
-                                           "evidence": post["tables"][0]["evidence"]}])
+        self.assertEqual([(r["id"], r["operations"], r["status"]) for r in post["tables"]],
+                         [("table:books", ["CREATE"], "confirmed")])
 
     def test_flutter_stack_only(self):
         m = model_of("flutter-app")

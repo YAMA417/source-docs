@@ -36,7 +36,7 @@ class CliFlowTest(unittest.TestCase):
         self.assertTrue(os.path.isfile(os.path.join(self.out, ".source-docs", "project-model.json")))
 
     def test_check_render_coverage_verify(self):
-        p = run("check", "--out", self.out)
+        p = run("lint", "--out", self.out)
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         p = run("render", "--out", self.out, "--format", "both")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
@@ -50,6 +50,11 @@ class CliFlowTest(unittest.TestCase):
         p = run("verify", "--out", self.out)
         self.assertEqual(p.returncode, 0, p.stdout)
         self.assertIn("RESULT=OK", p.stdout)
+        # 生成直後は古くない。--strict と閾値を付けても通る
+        p = run("check", "--out", self.out, "--strict", "--min-api-coverage", "100", "--min-screen-coverage", "100")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("RESULT=OK", p.stdout)
+        self.assertNotIn("stale", p.stdout)
 
     def test_features_and_show(self):
         p = run("features", "--out", self.out)
@@ -117,13 +122,62 @@ class CliErrorTest(unittest.TestCase):
             with open(os.path.join(out, ".source-docs", "annotations.json"), "w", encoding="utf-8") as f:
                 json.dump({"schema": "source-docs/annotations", "version": 1,
                            "entities": {"table:orders": {"unverified": [{"item": "単位"}]}}}, f)
-            p = run("check", "--out", out)
+            p = run("lint", "--out", out)
             self.assertEqual(p.returncode, 1)
             self.assertIn("searched", p.stdout)
+            p = run("check", "--out", out)
+            self.assertEqual(p.returncode, 1)
+            self.assertIn("ERROR   annotation.invalid", p.stdout)
             p = run("render", "--out", out)
             self.assertEqual(p.returncode, 1)
         finally:
             shutil.rmtree(out)
+
+
+class CheckTest(unittest.TestCase):
+    """`check` が、資料を作ったあとのコードの変化を見つけ、--strict で CI を止める。"""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="sd-repo-")
+        # アプリの ID はディレクトリ名から決まる。注釈の app:shop と合わせる
+        self.repo = os.path.join(self.tmp, "shop")
+        shutil.copytree(fixture("shop"), self.repo)
+        self.out = os.path.join(self.repo, "docs", "system")
+        run("analyze", "--repo", self.repo, "--out", self.out)
+        shutil.copy(fixture("shop-annotations.json"), os.path.join(self.out, ".source-docs", "annotations.json"))
+        p = run("render", "--out", self.out)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_new_api_after_render_is_stale(self):
+        route = os.path.join(self.repo, "src", "app", "api", "refunds", "route.ts")
+        os.makedirs(os.path.dirname(route))
+        with open(route, "w", encoding="utf-8") as f:
+            f.write("export async function POST() { return Response.json({}) }\n")
+        p = run("check", "--out", self.out)
+        self.assertEqual(p.returncode, 0, p.stdout)  # 古いだけなら WARNING
+        self.assertIn("WARNING stale: 新しいAPI 1 件: endpoint:POST /api/refunds", p.stdout)
+        p = run("check", "--out", self.out, "--strict")
+        self.assertEqual(p.returncode, 1, p.stdout)
+        self.assertIn("ERROR   stale", p.stdout)
+
+    def test_removed_screen_and_coverage_threshold(self):
+        os.remove(os.path.join(self.repo, "src", "app", "products", "page.tsx"))
+        p = run("check", "--out", self.out, "--json")
+        data = json.loads(p.stdout)
+        msgs = [d["message"] for d in data["diagnostics"] if d["code"] == "stale"]
+        self.assertTrue(any(m.startswith("無くなった画面 1 件: screen:/products") for m in msgs), msgs)
+
+    def test_secret_in_rendered_html_is_an_error(self):
+        os.makedirs(os.path.join(self.out, "html"), exist_ok=True)
+        with open(os.path.join(self.out, "html", "leak.html"), "w", encoding="utf-8") as f:
+            f.write("<p>AKIAIOSFODNN7EXAMPLQ</p>")
+        p = run("check", "--out", self.out, "--no-reanalyze")
+        self.assertEqual(p.returncode, 1, p.stdout)
+        self.assertIn("secret.docs: html/leak.html", p.stdout)
+        self.assertNotIn("AKIAIOSFODNN7EXAMPLQ", p.stdout)
 
 
 if __name__ == "__main__":
