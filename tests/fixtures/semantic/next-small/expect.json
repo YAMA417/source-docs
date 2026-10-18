@@ -1,0 +1,91 @@
+{
+  "description": "App Router の画面・API・遷移・fetch と、zod の入力検証をリクエストの根拠にする",
+  "entities": {
+    "screens": [
+      "screen:/",
+      "screen:/*slug",
+      "screen:/posts",
+      "screen:/posts/:id",
+      "screen:/posts/new"
+    ],
+    "endpoints": [
+      "endpoint:DELETE /api/posts/:id",
+      "endpoint:GET /api/posts",
+      "endpoint:POST /api/posts"
+    ],
+    "tables": [],
+    "integrations": []
+  },
+  "relations": [
+    {
+      "from": "screen:/",
+      "field": "links",
+      "to": "screen:/posts",
+      "status": "confirmed"
+    },
+    {
+      "from": "screen:/",
+      "field": "links",
+      "to": "screen:/*slug",
+      "status": "inferred"
+    },
+    {
+      "from": "screen:/posts",
+      "field": "calls",
+      "to": "endpoint:GET /api/posts",
+      "status": "confirmed"
+    },
+    {
+      "from": "screen:/posts",
+      "field": "links",
+      "to": "screen:/posts/:id",
+      "status": "confirmed"
+    },
+    {
+      "from": "screen:/posts/new",
+      "field": "calls",
+      "to": "endpoint:POST /api/posts",
+      "status": "confirmed"
+    },
+    {
+      "from": "screen:/posts/new",
+      "field": "links",
+      "to": "screen:/posts",
+      "status": "confirmed"
+    }
+  ],
+  "requestSchema": {
+    "endpoint:POST /api/posts": [
+      {
+        "name": "title",
+        "required": true,
+        "constraints": "min(3), max(128)"
+      },
+      {
+        "name": "content",
+        "required": false
+      },
+      {
+        "name": "status",
+        "required": false,
+        "type": "enum(draft, published)"
+      }
+    ],
+    "endpoint:DELETE /api/posts/:id": [
+      {
+        "name": "id",
+        "in": "path",
+        "required": true
+      }
+    ]
+  },
+  "diagnostics": [],
+  "docs": {
+    "api.md": {
+      "bodyContains": [
+        "リクエストの根拠: 実行時の入力検証（zod）",
+        "| body | `title` | string | はい | min(3), max(128) |"
+      ]
+    }
+  }
+}

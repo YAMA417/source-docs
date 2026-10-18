@@ -1,0 +1,8 @@
+{
+  "name": "jobs",
+  "dependencies": {
+    "bullmq": "5.0.0",
+    "node-cron": "3.0.0",
+    "drizzle-orm": "0.30.0"
+  }
+}

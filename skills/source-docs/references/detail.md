@@ -56,7 +56,8 @@
                        "timeout": "", "failure": "", "evidence": []}],
     "sideEffects": [{"kind": "email|notification|event|queue|cache|file|external-api|other", "description": "", "evidence": []}],
     "files": [{"role": "入口", "path": "src/app/api/orders/route.ts"}],
-    "unverified": [{"item": "", "searched": ""}]
+    "risks": [{"description": "", "evidence": []}],
+    "unverified": [{"item": "", "searched": "", "kind": "unresolved"}]
   }
 }
 ```
@@ -71,6 +72,18 @@
 
 「トランザクションを張っているはず」「冪等なはず」を書かない。コードに無ければ `not-implemented`、
 読み切れなければ `unverified`。`concurrency` と `stateTransition` は、該当しないなら省く。
+
+## 認証・権限
+
+資料には「認証・権限」の節が必ず出る。中身は `preconditions` のうち `authentication` `authorization`
+`role` `ownership` のもの。**誰が実行できるかを確かめていないなら、書かずに未確認にする。**
+ミドルウェアやレイアウトで守られている場合は、その箇所を evidence にする。
+
+## 現在の仕様と注意点を分ける
+
+- 本文（入力・分岐・データへの影響…）には、**今のコードがどう動くか**だけを書く
+- 改修・運用で気を付けること（同時に更新すると後勝ちになる、など）は `risks` に書く。資料では「注意点」の節に出る
+- 「バグ」「不具合」「誤り」と判定しない。仕様かどうかはコードからは決まらない。**事実と、そこから起きうることを書く**
 
 ## シーケンス
 

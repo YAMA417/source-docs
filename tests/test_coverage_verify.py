@@ -9,11 +9,12 @@ import unittest
 
 from helpers import ShopDocs, analyze_files, write_project
 
-from sdocs.analyzer import analyze
-from sdocs.coverage import compute, format_text, read_docs
-from sdocs.model import model_path, write_json
-from sdocs.render import render_docs
-from sdocs.verify import extract_tables, verify
+from sdocs.core.analyzer import analyze
+from sdocs.validators.coverage import compute, format_text, read_docs
+from sdocs.core.model import model_path, write_json
+from sdocs.renderers import render_docs
+from sdocs.validators.verify import extract_tables, verify
+from sdocs.core.resolve import resolve
 
 
 class CoverageTest(unittest.TestCase):
@@ -25,7 +26,7 @@ class CoverageTest(unittest.TestCase):
         self.docs.cleanup()
 
     def cov(self):
-        return compute(self.docs.model, self.docs.annotations(), self.docs.out)["kinds"]
+        return compute(self.docs.model, self.docs.annotations(), self.docs.out)["detection"]
 
     def test_freshly_rendered_docs_are_complete(self):
         for kind, r in self.cov().items():
@@ -64,11 +65,11 @@ class CoverageTest(unittest.TestCase):
         out = os.path.join(root, "docs", "system")
         try:
             m = analyze([root], out)
-            render_docs(m, {}, out)
+            render_docs(resolve(m, {}), out)
             with open(os.path.join(root, "app", "api", "a", "route.ts"), "a", encoding="utf-8") as f:
                 f.write("export async function DELETE() {}\n")
             m2 = analyze([root], out)
-            api = compute(m2, {}, out)["kinds"]["api"]
+            api = compute(m2, {}, out)["detection"]["api"]
             self.assertEqual(api["undocumented"], ["endpoint:DELETE /api/a"])
         finally:
             shutil.rmtree(root)
@@ -90,8 +91,8 @@ class CoverageCategoriesTest(unittest.TestCase):
         out = tempfile.mkdtemp()
         try:
             m = analyze([root], out)
-            render_docs(m, {}, out)
-            api = compute(m, {}, out)["kinds"]["api"]
+            render_docs(resolve(m, {}), out)
+            api = compute(m, {}, out)["detection"]["api"]
             self.assertEqual([u["id"] for u in api["unresolved"]], ["endpoint:ANY /api/any"])
             self.assertEqual([u["file"] for u in api["unsupported"]], ["app/api/broken/route.ts"])
             self.assertEqual((api["detected"], api["documented"], api["coverage"]), (2, 1, 1.0))
@@ -103,7 +104,7 @@ class CoverageCategoriesTest(unittest.TestCase):
         out = tempfile.mkdtemp()
         try:
             m = analyze_files({"README.md": "x"})
-            self.assertIsNone(compute(m, {}, out)["kinds"]["api"]["coverage"])
+            self.assertIsNone(compute(m, {}, out)["detection"]["api"]["coverage"])
         finally:
             shutil.rmtree(out)
 

@@ -14,7 +14,7 @@
 """
 
 MODEL_SCHEMA = "source-docs/project-model"
-MODEL_VERSION = 1
+MODEL_VERSION = 2
 
 ANNOTATIONS_SCHEMA = "source-docs/annotations"
 ANNOTATIONS_VERSION = 1

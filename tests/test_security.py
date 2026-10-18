@@ -3,13 +3,15 @@
 import json
 import os
 import shutil
+import tempfile
 import unittest
 
 from helpers import ShopDocs, analyze_files, try_symlink, write_project
 
-from sdocs import fs, security
-from sdocs.analyzer import analyze
-from sdocs.secrets import blocking, mask, scan
+from sdocs.core import fs, security
+from sdocs.core.analyzer import analyze
+from sdocs.validators.secrets import blocking, mask, scan
+from sdocs.core.resolve import resolve
 
 
 class SecretFileTest(unittest.TestCase):
@@ -175,3 +177,55 @@ class ModelHasNoSecretsTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SpecSecretListTest(unittest.TestCase):
+    """社内公開前の依頼で挙がった、開いてはいけないファイルの一覧。
+
+    それぞれに固有の値（カナリア）を置き、解析・描画（Markdown / JSON / HTML）のどこにも出ないことを確かめる。
+    """
+
+    FILES = (".env", ".env.local", ".env.production", "server.pem", "tls.key", "store.p12", "release.jks",
+             "id_rsa", "credentials.json", "service-account.json", ".npmrc", ".netrc", ".git-credentials",
+             ".pgpass", "prod.tfvars", ".ssh/config", ".aws/credentials", ".gnupg/pubring.kbx",
+             ".kube/config", "credentials/google.json", "secrets/app.ts", "config/secrets/db.ts")
+
+    def test_nothing_from_secret_files_reaches_any_output(self):
+        from sdocs.renderers import render_docs, write_evidence
+        from sdocs.renderers.html import write_site
+        files = {"package.json": json.dumps({"dependencies": {"next": "15"}}),
+                 "app/page.tsx": "export default function P() { return null }\n",
+                 ".env.example": "EXAMPLE_ONLY_KEY=CANARY_EXAMPLE_VALUE\n"}
+        for i, name in enumerate(self.FILES):
+            files[name] = f'export const leaked = "CANARY_{i}";\nexport async function GET() {{}}\n'
+        root = write_project(files)
+        out = tempfile.mkdtemp()
+        try:
+            repo = fs.Repo("x", root)
+            listed = set(repo.files)
+            for name in self.FILES:
+                self.assertNotIn(name, listed, name)
+            model = analyze([root], out)
+            written = render_docs(resolve(model, {}), out) + [write_evidence(resolve(model, {}), out)]
+            written += write_site(out, os.path.join(out, "html"))
+            texts = [json.dumps(model)]
+            for p in written:
+                with open(p, encoding="utf-8") as f:
+                    texts.append(f.read())
+            blob = "\n".join(texts)
+            self.assertNotIn("CANARY_", blob)
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
+            shutil.rmtree(out, ignore_errors=True)
+
+    def test_scanner_covers_markdown_json_and_html(self):
+        from sdocs.validators import secrets as sec
+        d = tempfile.mkdtemp()
+        try:
+            for name in ("a.md", "b.json", "c.html"):
+                with open(os.path.join(d, name), "w", encoding="utf-8") as f:
+                    f.write("token: ghp_" + "a1B2" * 9 + "\n")
+            found = sec.scan_paths([d])
+            self.assertEqual(sorted(os.path.basename(p) for p in found), ["a.md", "b.json", "c.html"])
+        finally:
+            shutil.rmtree(d)

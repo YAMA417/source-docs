@@ -1,7 +1,7 @@
 {
   "name": "source-docs",
   "description": "既存コードを解析し、システム全体（概要・機能一覧・DB・API・画面・外部連携）から 1 機能の詳細設計まで辿れる資料を生成する。画面を持たない機能（Webhook・定期実行・キュー・イベント処理）も扱い、各記述の根拠ソースと網羅率（coverage）を出す。ソースから確認できないことは書かず「未確認」として残す。",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "author": {
     "name": "YAMA417",
     "url": "https://github.com/YAMA417"

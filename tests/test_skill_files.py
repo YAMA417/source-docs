@@ -79,7 +79,7 @@ class ReferenceTest(unittest.TestCase):
         """references に書いた選択肢と、検査器が受け付ける値が一致すること。"""
         import sys
         sys.path.insert(0, os.path.join(SKILL, "scripts"))
-        from sdocs import annotations as a
+        from sdocs.validators import annotations as a
         detail = read(SKILL, "references", "detail.md")
         for values in (a.STATUS, a.PRECONDITION_KINDS, a.SIDE_EFFECT_KINDS, a.CONCURRENCY_KINDS,
                        a.STEP_KINDS, a.PARTICIPANT_KINDS):

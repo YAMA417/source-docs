@@ -1,0 +1,23 @@
+datasource db {
+  provider     = "postgresql"
+  url          = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id
+  email     String   @unique
+  name      String?
+  nickname  String?
+  posts     Post[]
+  @@map("users")
+}
+
+model Post {
+  id        String   @id
+  title     String
+  authorId  String   @map("author_id")
+  author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  published Boolean  @default(false)
+  @@unique([authorId, title])
+  @@map("posts")
+}

@@ -9,10 +9,11 @@ import unittest
 
 from helpers import ShopDocs, analyze_files, try_symlink, write_project
 
-from sdocs.model import model_dir
-from sdocs.render import evidence_index, find_feature, render_docs, write_evidence
-from sdocs.render import html as html_mod
-from sdocs.render import mermaid as mm
+from sdocs.core.model import model_dir
+from sdocs.renderers import evidence_index, find_feature, render_docs, write_evidence
+from sdocs.renderers import html as html_mod
+from sdocs.renderers import mermaid as mm
+from sdocs.core.resolve import resolve
 
 
 class ShopRenderTest(unittest.TestCase):
@@ -63,7 +64,9 @@ class ShopRenderTest(unittest.TestCase):
     def test_database(self):
         text = self.docs.read("database.md")
         self.assertIn("erDiagram", text)
-        self.assertIn('orders }o--|| products : "product_id"', text)
+        # migration が無いので、Drizzle の references()（drizzle-kit が FK として作る）を DB の外部キーとして実線で描く
+        self.assertIn('orders }o--|| products : "Physical FK (product_id) / ORM relation (Drizzle)"', text)
+        self.assertIn("定義の根拠: Drizzle", text)
         self.assertIn("### `orders` — 注文", text)
         self.assertIn("| `status` | order_status | 不可 | `\"pending\"` |  | 支払いの状態 |".replace("|  |", "| — |"),
                       text)
@@ -115,7 +118,7 @@ class ShopRenderTest(unittest.TestCase):
         self.assertIn("[機能一覧]" if False else "flowchart LR", text)
 
     def test_evidence_index(self):
-        path = write_evidence(self.docs.model, self.docs.annotations(), self.docs.out)
+        path = write_evidence(self.docs.resolved(), self.docs.out)
         with open(path, encoding="utf-8") as f:
             data = json.load(f)["entities"]
         orders = data["endpoint:POST /api/orders"]
@@ -134,7 +137,9 @@ class RenderOptionsTest(unittest.TestCase):
             self.assertEqual([os.path.basename(p) for p in written], ["cron-cleanup-cron.md"])
             text = docs.read("detail/cron-cleanup-cron.md")
             self.assertIn("`orders` | DELETE", text)
-            self.assertIn("| cleanup-cron（名前未確定） | トランザクション | 注釈未作成 |", text)
+            self.assertIn("| cleanup-cron（名前未確定） | トランザクション | 未解決 | 注釈未作成 |", text)
+            self.assertIn("## 認証・権限", text)
+            self.assertIn("## 注意点", text)
         finally:
             docs.cleanup()
 
@@ -149,7 +154,7 @@ class RenderOptionsTest(unittest.TestCase):
     def test_find_feature_by_name_slug_id(self):
         docs = ShopDocs()
         try:
-            from sdocs.features import apply_annotations
+            from sdocs.core.features import apply_annotations
             fs = apply_annotations(docs.model, docs.annotations())
             for key in ("注文確定", "order-confirm", "feature:order-confirm"):
                 self.assertEqual(find_feature(fs, key)["id"], "feature:order-confirm")
@@ -164,7 +169,7 @@ class ErSplitTest(unittest.TestCase):
         m = analyze_files({"schema.sql": sql})
         out = tempfile.mkdtemp()
         try:
-            render_docs(m, {}, out, only=["database"])
+            render_docs(resolve(m, {}), out, only=["database"])
             text = open(os.path.join(out, "database.md"), encoding="utf-8").read()
             self.assertGreaterEqual(text.count("erDiagram"), 3)
             self.assertIn("つながりの塊ごとに", text)
@@ -179,11 +184,11 @@ class StrapiApiSpecTest(unittest.TestCase):
 
     def test_core_api_has_request_and_response(self):
         from helpers import fixture
-        from sdocs.analyzer import analyze
+        from sdocs.core.analyzer import analyze
         out = tempfile.mkdtemp()
         try:
             m = analyze([fixture("nextjs-strapi")], out)
-            render_docs(m, {"api": {"auth": "不要"}}, out, only=["api"])
+            render_docs(resolve(m, {"api": {"auth": "不要"}}), out, only=["api"])
             text = open(os.path.join(out, "api.md"), encoding="utf-8").read()
             section = text.split("### `POST /api/books` —")[1].split("\n### ")[0]
             self.assertIn("作成する（Strapi の既定の API）", section)
@@ -199,7 +204,7 @@ class StrapiApiSpecTest(unittest.TestCase):
     def test_check_counts_unannotated_apis(self):
         docs = ShopDocs()
         try:
-            from sdocs.annotations import check
+            from sdocs.validators.annotations import check
             warnings = check(docs.model, docs.annotations(), docs.out).warnings
             self.assertTrue(any("注釈の無いAPIが 2 件" in w for w in warnings), warnings)
         finally:
@@ -217,12 +222,14 @@ class ErRelationTest(unittest.TestCase):
         })
         out = tempfile.mkdtemp()
         try:
-            render_docs(m, {}, out, only=["database"])
+            render_docs(resolve(m, {}), out, only=["database"])
             text = open(os.path.join(out, "database.md"), encoding="utf-8").read()
-            # 双方向に宣言された 1 つのリレーションは 1 本だけ、カーディナリティつきで描く
-            self.assertIn("as ||--o{ bs", text)
-            self.assertNotIn("bs }o--|| as", text)
-            self.assertNotIn("}o--o{", text)
+            # 双方向に宣言された 1 つの関係は 1 本だけ、カーディナリティつきで描く。
+            # ORM の関係なので点線（DB の外部キーとは限らない）
+            self.assertIn("as ||..o{ bs", text)
+            self.assertNotIn("bs }o..|| as", text)
+            self.assertNotIn("}o..o{", text)
+            self.assertIn("**ORM の関係**", text)
         finally:
             shutil.rmtree(out)
 
@@ -339,7 +346,7 @@ class EvidenceIndexUnitTest(unittest.TestCase):
     def test_contains_every_entity(self):
         docs = ShopDocs(annotations=False)
         try:
-            data = evidence_index(docs.model, {})
+            data = evidence_index(resolve(docs.model, {}))
             for coll in ("screens", "endpoints", "tables", "entrypoints"):
                 for item in docs.model[coll]:
                     self.assertIn(item["id"], data)

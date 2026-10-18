@@ -5,8 +5,9 @@ import unittest
 
 from helpers import ShopDocs
 
-from sdocs.annotations import check, normalize_evidence
-from sdocs.features import apply_annotations
+from sdocs.validators.annotations import check, normalize_evidence
+from sdocs.core.features import apply_annotations
+from sdocs.core.resolve import resolve
 
 
 class ShopAnnotationsTest(unittest.TestCase):
@@ -177,3 +178,62 @@ class EvidenceFormTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NewAnnotationFormsTest(unittest.TestCase):
+    """辞書形式の features・入口の省略形・Capability・異議（disputes）・未確認の種類。"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.docs = ShopDocs()
+        cls.base = cls.docs.annotations()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.docs.cleanup()
+
+    def test_dict_features_with_short_entrypoint_refs(self):
+        ann = {"features": {"feature:checkout-flow": {
+            "name": "購入", "entrypoints": ["screen:/checkout", "http:POST /api/orders"]}}}
+        result = check(self.docs.model, dict(self.base, **ann), self.docs.out)
+        self.assertEqual(result.errors, [])
+        f = {f["id"]: f for f in apply_annotations(self.docs.model, ann)}["feature:checkout-flow"]
+        self.assertEqual(f["name"], "購入")
+        self.assertIn("entrypoint:screen:/checkout", f["entrypoints"])
+        self.assertIn("entrypoint:http:POST /api/orders", f["entrypoints"])
+
+    def test_capability_groups_features(self):
+        view = resolve(self.docs.model, dict(self.base, capabilities={
+            "capability:sales": {"name": "販売", "features": ["feature:order-confirm", "feature:ghost"]}}))
+        cap = view["capabilities"][0]
+        self.assertEqual(cap["features"], ["feature:order-confirm"])
+        self.assertEqual(cap["unknownFeatures"], ["feature:ghost"])
+
+    def test_dispute_moves_fact_out_of_body(self):
+        """異議を出した関係は本文から外れ、未確定（矛盾）として出る。"""
+        dispute = {"entity": "endpoint:POST /api/orders", "field": "tables", "value": "table:orders",
+                   "reason": "テスト用の異議", "evidence": ["src/app/api/orders/route.ts"]}
+        ann = dict(self.base, disputes=[dispute])
+        self.assertEqual(check(self.docs.model, ann, self.docs.out).errors, [])
+        view = resolve(self.docs.model, ann)
+        ep = {e["id"]: e for e in view["endpoints"]}["endpoint:POST /api/orders"]
+        self.assertNotIn("table:orders", [r["id"] for r in ep["tables"]])
+        self.assertIn({"field": "tables", "value": "table:orders", "status": "conflict"},
+                      [{k: p[k] for k in ("field", "value", "status")} for p in ep["pending"]])
+        self.assertIn("dispute.tables", [d["code"] for d in view["diagnostics"] if d["severity"] == "ERROR"])
+        self.assertEqual(view["quality"]["conflict"], 1)
+
+    def test_dispute_requires_reason_and_evidence(self):
+        ann = dict(self.base, disputes=[{"entity": "endpoint:POST /api/orders", "field": "tables",
+                                         "value": "table:orders"}])
+        errors = check(self.docs.model, ann, self.docs.out).errors
+        self.assertTrue(any("reason" in e for e in errors), errors)
+        self.assertTrue(any("根拠" in e for e in errors), errors)
+
+    def test_unverified_kind(self):
+        data = copy.deepcopy(self.base)
+        data["entities"]["table:orders"]["unverified"] = [
+            {"item": "保持期間", "searched": "migration と README", "kind": "runtime-dependent"}]
+        self.assertEqual(check(self.docs.model, data, self.docs.out).errors, [])
+        data["entities"]["table:orders"]["unverified"][0]["kind"] = "guess"
+        self.assertTrue(check(self.docs.model, data, self.docs.out).errors)

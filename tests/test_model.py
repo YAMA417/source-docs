@@ -10,7 +10,7 @@ import unittest
 from helpers import model_of
 
 from sdocs import MODEL_SCHEMA, MODEL_VERSION
-from sdocs.model import (ENTRYPOINT_TYPES, load_model, model_path, normalize_path, validate_model,
+from sdocs.core.model import (ENTRYPOINT_TYPES, load_model, model_path, normalize_path, validate_model,
                          write_json)
 
 
@@ -51,7 +51,7 @@ class SchemaTest(unittest.TestCase):
 
     def test_deterministic(self):
         """同じ入力からは同じモデル。差分で鮮度を比べるため。"""
-        from sdocs.analyzer import analyze
+        from sdocs.core.analyzer import analyze
         from helpers import fixture
         a = analyze([fixture("shop")], tempfile.gettempdir())
         b = analyze([fixture("shop")], tempfile.gettempdir())

@@ -1,0 +1,8 @@
+{
+  "name": "next-small",
+  "dependencies": {
+    "next": "14.2.0",
+    "react": "18.3.0",
+    "zod": "3.23.0"
+  }
+}
